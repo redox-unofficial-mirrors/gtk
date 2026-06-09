@@ -134,6 +134,7 @@ gtk_api_version = '@0@.0'.format(gtk_major_version)
 
 x11_enabled            = get_option('x11_backend')
 wayland_enabled        = get_option('wayland_backend')
+orbital_enabled        = get_option('orbital_backend')
 broadway_enabled       = get_option('broadway_backend')
 quartz_enabled         = get_option('quartz_backend')
 win32_enabled          = get_option('win32_backend')
@@ -142,6 +143,7 @@ os_unix   = false
 os_linux  = false
 os_win32  = false
 os_darwin = false
+os_redox = false
 
 # Some windowing system backends depend on the platform we're
 # building for, so we need to ensure they are disabled; in other
@@ -153,6 +155,8 @@ elif host_machine.system() == 'windows'
   os_win32 = true
 elif host_machine.system() == 'linux'
   os_linux = true
+elif host_machine.system() == 'redox'
+  os_redox = true
 endif
 os_unix = not os_win32
 
@@ -645,6 +649,17 @@ if x11_enabled
   cdata.set('HAVE_RANDR15', xrandr15_dep.found() ? 1 : false)
 endif
 
+
+orbital_pkgs = []
+if orbital_enabled
+  orbitaldep    = dependency('orbital')
+  backend_immodules += ['orbital']
+
+  wayland_pkgs = [
+    'xkbcommon', xkbcommon_req,
+  ]
+endif
+
 if broadway_enabled
   pc_gdk_extra_libs += ['-lz']
   backend_immodules += ['broadway']
@@ -675,6 +690,10 @@ if win32_enabled
     pkgconfig: 'epoxy_has_egl',
     internal: 'epoxy_has_egl',
     default_value: '0') == '1'
+endif
+
+if orbital_enabled
+  pc_gdk_extra_libs += ['-lorbital']
 endif
 
 # IMModules stuff-unfortunately we need to put items here
@@ -953,7 +972,7 @@ gdk_pcs = ['gdk-3.0.pc']
 
 pkg_targets = ''
 disabled_backends = []
-foreach backend: [ 'broadway', 'quartz', 'wayland', 'win32', 'x11']
+foreach backend: [ 'broadway', 'quartz', 'wayland', 'orbital', 'win32', 'x11']
   if get_variable('@0@_enabled'.format(backend))
     gtk_pcs += ['gtk+-@0@-3.0.pc'.format(backend)]
     gdk_pcs += ['gdk-@0@-3.0.pc'.format(backend)]

@@ -7,6 +7,8 @@ option('broadway_backend', type: 'boolean', value: false,
   description : 'Enable the broadway (HTML5) gdk backend')
 option('win32_backend', type: 'boolean', value: true,
   description : 'Enable the Windows gdk backend (only when building on Windows)')
+option('orbital_backend', type: 'boolean', value: true,
+  description : 'Enable the Redox orbital backend (only when building on Redox)')
 option('quartz_backend', type: 'boolean', value: true,
   description : 'Enable the macOS gdk backend (only when building on macOS)')
 

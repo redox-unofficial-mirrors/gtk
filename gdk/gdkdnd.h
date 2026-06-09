@@ -90,6 +90,7 @@ typedef enum {
  * @GDK_DRAG_PROTO_WIN32_DROPFILES: The simple WM_DROPFILES protocol.
  * @GDK_DRAG_PROTO_OLE2: The complex OLE2 DND protocol (not implemented).
  * @GDK_DRAG_PROTO_LOCAL: Intra-application DND.
+ * @GDK_DRAG_PROTO_ORBITAL: Orbital DND protocol.
  * @GDK_DRAG_PROTO_WAYLAND: Wayland DND protocol.
  *
  * Used in #GdkDragContext to indicate the protocol according to
@@ -104,7 +105,8 @@ typedef enum
   GDK_DRAG_PROTO_WIN32_DROPFILES,
   GDK_DRAG_PROTO_OLE2,
   GDK_DRAG_PROTO_LOCAL,
-  GDK_DRAG_PROTO_WAYLAND
+  GDK_DRAG_PROTO_ORBITAL,
+  GDK_DRAG_PROTO_WAYLAND,
 } GdkDragProtocol;
 
 
