@@ -721,6 +721,11 @@ gtk_use_wayland_sources = files([
   'gtkapplication-wayland.c'
 ])
 
+gtk_use_orbital_sources = files([
+  'gtkapplication-orbital.c',
+  'gtkmountoperation-stub.c',
+])
+
 if quartz_enabled
   gtk_sources += files(
     'gtkclipboard-quartz.c',
@@ -862,6 +867,10 @@ if wayland_enabled
   gtk_sources += gtk_use_wayland_sources
 endif
 
+if orbital_enabled
+  gtk_sources += gtk_use_orbital_sources
+endif
+
 if win32_enabled
   gtk_cargs += []
   gtk_sources += gtk_use_win32_sources
@@ -916,7 +925,7 @@ if x11_enabled or wayland_enabled
   gtk_deps += pangoft_dep
 endif
 
-if not (x11_enabled or win32_enabled or quartz_enabled)
+if not (x11_enabled or win32_enabled or orbital_enabled or quartz_enabled)
   gtk_sources += gtk_stub_sources
 endif
 

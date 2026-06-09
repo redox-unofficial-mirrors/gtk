@@ -355,7 +355,7 @@ static gboolean
 check_setugid (void)
 {
 /* this isn't at all relevant on MS Windows and doesn't compile ... --hb */
-#ifndef G_OS_WIN32
+#if !defined(G_OS_WIN32) && !defined(__redox__)
   uid_t ruid, euid, suid; /* Real, effective and saved user ID's */
   gid_t rgid, egid, sgid; /* Real, effective and saved group ID's */
   

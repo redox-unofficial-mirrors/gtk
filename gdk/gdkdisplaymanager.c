@@ -50,6 +50,10 @@
 #include "win32/gdkprivate-win32.h"
 #endif
 
+#ifdef GDK_WINDOWING_ORBITAL
+#include "orbital/gdkprivate-orbital.h"
+#endif
+
 #ifdef GDK_WINDOWING_WAYLAND
 #include "wayland/gdkprivate-wayland.h"
 #endif
@@ -262,6 +266,9 @@ static GdkBackend gdk_backends[] = {
 #endif
 #ifdef GDK_WINDOWING_WIN32
   { "win32",    _gdk_win32_display_open },
+#endif
+#ifdef GDK_WINDOWING_ORBITAL
+  { "orbital",    _gdk_orbital_display_open },
 #endif
 #ifdef GDK_WINDOWING_WAYLAND
   { "wayland",  _gdk_wayland_display_open },

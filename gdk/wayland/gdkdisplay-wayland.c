@@ -28,7 +28,9 @@
 #endif
 
 #include <sys/mman.h>
+#if defined (__NR_memfd_create)
 #include <sys/syscall.h>
+#endif
 
 #include <glib.h>
 #include "gdkwayland.h"

@@ -318,6 +318,10 @@ How to compile GTK+ itself
           </group>
           <sbr/>
           <group>
+            <arg choice="plain">-Dorbital_backend=[false/true]</arg>
+          </group>
+          <sbr/>
+          <group>
             <arg choice="plain">-Dintrospection=[false/true]</arg>
           </group>
           <sbr/>
@@ -370,6 +374,7 @@ How to compile GTK+ itself
           <systemitem>-Dwin32_backend</systemitem>,
           <systemitem>-Dquartz_backend</systemitem>,
           <systemitem>-Dbroadway_backend</systemitem>,
+          <systemitem>-Dorbital_backend</systemitem>,
           <systemitem>-Dwayland_backend</systemitem></title>
 
         <para>

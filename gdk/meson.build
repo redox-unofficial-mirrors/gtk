@@ -109,6 +109,23 @@ gdk_wayland_sources = files(
   'wayland/wm-button-layout-translation.c',
 )
 
+
+gdk_orbital_sources = files(
+  'orbital/gdkapplaunchcontext-orbital.c',
+  'orbital/gdkcursor-orbital.c',
+  'orbital/gdkdevice-orbital.c',
+  'orbital/gdkdisplay-orbital.c',
+  'orbital/gdkdnd-orbital.c',
+  'orbital/gdkeventsource.c',
+  'orbital/gdkglcontext-orbital.c',
+  'orbital/gdkkeys-orbital.c',
+  'orbital/gdkmonitor-orbital.c',
+  'orbital/gdkscreen-orbital.c',
+  'orbital/gdkselection-orbital.c',
+  'orbital/gdkwindow-orbital.c',
+  'orbital/wm-button-layout-translation.c',
+)
+
 gdk_broadway_sources = files([
   'broadway/gdkdisplay-broadway.c',
   'broadway/gdkscreen-broadway.c',
@@ -165,6 +182,7 @@ gdkconfig_cdata.set('GDK_WINDOWING_X11', x11_enabled)
 gdkconfig_cdata.set('GDK_WINDOWING_WAYLAND', wayland_enabled)
 gdkconfig_cdata.set('GDK_WINDOWING_WIN32', win32_enabled)
 gdkconfig_cdata.set('GDK_WINDOWING_BROADWAY', broadway_enabled)
+gdkconfig_cdata.set('GDK_WINDOWING_ORBITAL', orbital_enabled)
 gdkconfig_cdata.set('GDK_WINDOWING_QUARTZ', quartz_enabled)
 
 gdkconfig = configure_file(
@@ -192,6 +210,7 @@ gdkversionmacros = configure_file(
 gdkinc = include_directories('.')
 gdkx11_inc = include_directories('x11')
 gdkwayland_inc = include_directories('wayland')
+gdkorbital_inc = include_directories('orbital')
 
 wlinc = include_directories('.')
 
@@ -259,7 +278,7 @@ endif
 
 gdk_backends = []
 gdk_backends_gen_headers = []  # non-public generated headers
-foreach backend : ['broadway', 'quartz', 'wayland', 'win32', 'x11']
+foreach backend : ['broadway', 'quartz', 'wayland', 'orbital', 'win32', 'x11']
   if get_variable('@0@_enabled'.format(backend))
     subdir(backend)
     gdk_deps += get_variable('gdk_@0@_deps'.format(backend))
