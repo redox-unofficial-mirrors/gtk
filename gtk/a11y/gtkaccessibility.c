@@ -37,7 +37,7 @@
 #include <gtk/gtktogglebutton.h>
 #include <gtk/gtkaccessible.h>
 
-#ifdef GDK_WINDOWING_X11
+#if defined(GDK_WINDOWING_X11) && !defined(__redox__)
 #include <atk-bridge.h>
 #endif
 
@@ -254,7 +254,7 @@ gail_focus_watcher (GSignalInvocationHint *ihint,
         }
     }
 
-#ifdef GDK_WINDOWING_X11
+#if defined(GDK_WINDOWING_X11) && !defined(__redox__)
   /*
    * If the focus widget is a GtkSocket without a plug
    * then ignore the focus notification as the embedded
@@ -986,7 +986,7 @@ _gtk_accessibility_init (void)
   _gtk_accessibility_override_atk_util ();
   do_window_event_initialization ();
 
-#ifdef GDK_WINDOWING_X11
+#if defined(GDK_WINDOWING_X11) && !defined(__redox__)
   atk_bridge_adaptor_init (NULL, NULL);
 #endif
 

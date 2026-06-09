@@ -565,7 +565,7 @@ if x11_enabled
   xfixes_dep     = dependency('xfixes', required: false)
   xcomposite_dep = dependency('xcomposite', required: false)
   fontconfig_dep = dependency('fontconfig', fallback: ['fontconfig', 'fontconfig_dep'])
-  atkbridge_dep  = dependency('atk-bridge-2.0', version: at_spi2_atk_req)
+  #TODO atkbridge_dep  = dependency('atk-bridge-2.0', version: at_spi2_atk_req)
 
   backend_immodules += ['xim']
 
@@ -584,7 +584,7 @@ if x11_enabled
     x11_pkgs += ['xdamage']
   endif
 
-  atk_pkgs += ['atk-bridge-2.0']
+  #atk_pkgs += ['atk-bridge-2.0']
 
   cdata.set('HAVE_XDAMAGE', xdamage_dep.found() ? 1 : false)
   cdata.set('HAVE_XCURSOR', xcursor_dep.found() ? 1 : false)
