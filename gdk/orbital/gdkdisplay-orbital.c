@@ -30,6 +30,11 @@ _gdk_orbital_display_open (const gchar *display_name)
   GdkDisplay *display;
   GdkOrbitalDisplay *display_orbital;
 
+  /* If this variable is unset then fallback to wayland/x11
+   */
+ if (g_getenv ("ORBITAL_DISPLAY") == NULL)
+    return NULL;
+
   GDK_NOTE (MISC, g_message ("opening Orbital display %s", display_name ? display_name : ""));
 
   display = g_object_new (GDK_TYPE_ORBITAL_DISPLAY, NULL);
