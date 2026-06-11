@@ -723,7 +723,6 @@ gtk_use_wayland_sources = files([
 
 gtk_use_orbital_sources = files([
   'gtkapplication-orbital.c',
-  'gtkmountoperation-stub.c',
 ])
 
 if quartz_enabled
