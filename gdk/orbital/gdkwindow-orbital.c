@@ -112,12 +112,12 @@ gdk_orbital_window_ensure_cairo_surface (GdkWindow *window)
     {
       uint32_t *pixel_data = orb_window_data (impl->orb_window);
       
-      int stride = cairo_format_stride_for_width (CAIRO_FORMAT_ARGB32, window->width);
+      int stride = cairo_format_stride_for_width (CAIRO_FORMAT_ARGB32, window->width * impl->scale);
 
       impl->cairo_surface = cairo_image_surface_create_for_data ((unsigned char *)pixel_data,
                                                                  CAIRO_FORMAT_ARGB32,
-                                                                 window->width,
-                                                                 window->height,
+                                                                 window->width * impl->scale,
+                                                                 window->height * impl->scale,
                                                                  stride);
       cairo_surface_set_device_scale (impl->cairo_surface, impl->scale, impl->scale);
     }
@@ -126,8 +126,8 @@ gdk_orbital_window_ensure_cairo_surface (GdkWindow *window)
       /* Software Fallback Patch: Allocates an out-of-screen buffer container so 
        * early sizing metrics or theme evaluations won't throw page faults. */
       impl->cairo_surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32,
-                                                        MAX (1, window->width),
-                                                        MAX (1, window->height));
+                                                        MAX (1, window->width * impl->scale),
+                                                        MAX (1, window->height * impl->scale));
       cairo_surface_set_device_scale (impl->cairo_surface, impl->scale, impl->scale);
     }
 }
@@ -154,8 +154,8 @@ gdk_orbital_window_update_size (GdkWindow *window,
   GdkRectangle area;
   cairo_region_t *region;
 
-  if ((window->width == width) &&
-      (window->height == height) &&
+  if ((window->width == width * scale) &&
+      (window->height == height * scale) &&
       (impl->scale == scale))
     {
       return;
@@ -169,17 +169,33 @@ gdk_orbital_window_update_size (GdkWindow *window,
 
   if (impl->orb_window)
     {
-      orb_window_set_size (impl->orb_window, window->width, window->height);
+      orb_window_set_size (impl->orb_window, window->width * scale, window->height * scale);
     }
 
   area.x = 0;
   area.y = 0;
-  area.width = window->width;
-  area.height = window->height;
+  area.width = window->width * scale;
+  area.height = window->height * scale;
 
   region = cairo_region_create_rectangle (&area);
   _gdk_window_invalidate_for_expose (window, region);
   cairo_region_destroy (region);
+}
+
+void _gdk_orbital_window_update_size_scale (GdkWindow *window,
+                                int32_t    width,
+                                int32_t    height,
+                                int        scale)
+{
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+
+  // sizes coming from orbital is physical size, what saved is logical
+  gdk_orbital_window_update_size(window, 
+    width == 0 ? window->width : width / impl->scale, 
+    height == 0 ? window->height : height / impl->scale, 
+    scale == 0 ? impl->scale : scale);
+
+  _gdk_window_update_size (window);
 }
 
 GdkWindow *
@@ -221,14 +237,12 @@ static void
 gdk_orbital_window_create_surface (GdkWindow *window)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
-  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT;
+  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_BORDERLESS | ORB_WINDOW_SCALABLE;
 
   if (window->window_type == GDK_WINDOW_TOPLEVEL)
     flags |= ORB_WINDOW_RESIZABLE;
-  else if (window->window_type == GDK_WINDOW_TEMP || impl->hint == GDK_WINDOW_TYPE_HINT_POPUP_MENU)
-    flags |= ORB_WINDOW_BORDERLESS;
 
-  impl->orb_window = orb_window_new_flags (window->x + window->abs_x, window->y + window->abs_y,
+  impl->orb_window = orb_window_new_flags (-1, -1,
                                            MAX(1, window->width), 
                                            MAX(1, window->height),
                                            impl->title ? impl->title : "",
@@ -497,12 +511,88 @@ gdk_orbital_window_set_title (GdkWindow   *window,
     orb_window_set_title (impl->orb_window, impl->title);
 }
 
+static void gdk_orbital_window_maximize (GdkWindow *window) {
+  GdkWindowImplOrbital *impl;
+
+  if (GDK_WINDOW_DESTROYED (window))
+    return;
+
+  impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  if (impl->orb_window) {
+    write(orb_window_fd(impl->orb_window), "F,m,1", 5);
+  }
+}
+static void gdk_orbital_window_unmaximize (GdkWindow *window) {
+  GdkWindowImplOrbital *impl;
+
+  if (GDK_WINDOW_DESTROYED (window))
+    return;
+
+  impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  if (impl->orb_window) {
+    write(orb_window_fd(impl->orb_window), "F,m,0", 5);
+  }
+}
+static void gdk_orbital_window_fullscreen (GdkWindow *window) {
+  GdkWindowImplOrbital *impl;
+
+  if (GDK_WINDOW_DESTROYED (window))
+    return;
+
+  impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  if (impl->orb_window) {
+    write(orb_window_fd(impl->orb_window), "F,M,1", 5);
+  }
+}
+static void gdk_orbital_window_fullscreen_on_monitor (GdkWindow *window, gint monitor) {
+  gdk_orbital_window_fullscreen(window);
+}
+static void gdk_orbital_window_unfullscreen (GdkWindow *window) {
+  GdkWindowImplOrbital *impl;
+
+  if (GDK_WINDOW_DESTROYED (window))
+    return;
+
+  impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  if (impl->orb_window) {
+    write(orb_window_fd(impl->orb_window), "F,M,0", 5);
+  }
+}
+
 static void
 gdk_orbital_window_destroy (GdkWindow *window,
                             gboolean   recursing,
                             gboolean   foreign_destroy)
 {
   gdk_orbital_window_hide_surface (window);
+}
+
+static void gdk_orbital_window_begin_resize_drag (GdkWindow *window, GdkWindowEdge edge, GdkDevice *d, gint b, gint rx, gint ry, guint32 time)
+{
+  void *orb_window = _gdk_orbital_window_get_native (window);
+  if (!orb_window) return;
+
+  int64_t orb_kind = ORB_WINDOW_DRAG_NONE;
+
+  switch (edge)
+    {
+      case GDK_WINDOW_EDGE_NORTH:      orb_kind = ORB_WINDOW_DRAG_RESIZE_TOP; break;
+      case GDK_WINDOW_EDGE_EAST:       orb_kind = ORB_WINDOW_DRAG_RESIZE_RIGHT; break;
+      case GDK_WINDOW_EDGE_WEST:       orb_kind = ORB_WINDOW_DRAG_RESIZE_LEFT; break;
+      case GDK_WINDOW_EDGE_SOUTH:       orb_kind = ORB_WINDOW_DRAG_RESIZE_BOTTOM; break;
+      default: return;
+    }
+
+  orb_window_set_window_drag (orb_window, orb_kind);
+}
+
+static void gdk_orbital_window_begin_move_drag (GdkWindow *window, GdkDevice *d, gint b, gint rx, gint ry, guint32 time)
+{
+  void *orb_window = _gdk_orbital_window_get_native (window);
+  if (!orb_window) return;
+    {
+      orb_window_set_window_drag (orb_window, ORB_WINDOW_DRAG_MOVE);
+    }
 }
 
 EGLSurface
@@ -675,11 +765,6 @@ static void gdk_orbital_window_iconify (GdkWindow *window) {}
 static void gdk_orbital_window_deiconify (GdkWindow *window) {}
 static void gdk_orbital_window_stick (GdkWindow *window) {}
 static void gdk_orbital_window_unstick (GdkWindow *window) {}
-static void gdk_orbital_window_maximize (GdkWindow *window) {}
-static void gdk_orbital_window_unmaximize (GdkWindow *window) {}
-static void gdk_orbital_window_fullscreen (GdkWindow *window) {}
-static void gdk_orbital_window_fullscreen_on_monitor (GdkWindow *window, gint monitor) {}
-static void gdk_orbital_window_unfullscreen (GdkWindow *window) {}
 static void gdk_orbital_window_set_keep_above (GdkWindow *window, gboolean setting) {}
 static void gdk_orbital_window_set_keep_below (GdkWindow *window, gboolean setting) {}
 static GdkWindow *gdk_orbital_window_get_group (GdkWindow *window) { return NULL; }
@@ -687,8 +772,6 @@ static void gdk_orbital_window_set_group (GdkWindow *window, GdkWindow *leader) 
 static void gdk_orbital_window_set_decorations (GdkWindow *window, GdkWMDecoration decorations) {}
 static gboolean gdk_orbital_window_get_decorations (GdkWindow *window, GdkWMDecoration *decorations) { return FALSE; }
 static void gdk_orbital_window_set_functions (GdkWindow *window, GdkWMFunction functions) {}
-static void gdk_orbital_window_begin_resize_drag (GdkWindow *w, GdkWindowEdge e, GdkDevice *d, gint b, gint rx, gint ry, guint32 time) {}
-static void gdk_orbital_window_begin_move_drag (GdkWindow *w, GdkDevice *d, gint b, gint rx, gint ry, guint32 time) {}
 static void gdk_orbital_window_set_opacity (GdkWindow *window, gdouble opacity) {}
 static void gdk_orbital_window_set_composited (GdkWindow *window, gboolean composited) {}
 static void gdk_orbital_window_destroy_notify (GdkWindow *window) { if (!GDK_WINDOW_DESTROYED(window)) { _gdk_window_destroy(window, TRUE); } g_object_unref(window); }

@@ -241,11 +241,17 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
 
                   case OrbEventOption_Resize:
                     g_print ("[GTK EVENT]   -> RESIZE to %dx%d\n", oeo.resize.width, oeo.resize.height);
+                    _gdk_orbital_window_update_size_scale(item->window, oeo.resize.width, oeo.resize.height, 0);
                     event = gdk_event_new (GDK_CONFIGURE);
                     event->configure.window = g_object_ref (item->window);
                     event->configure.send_event = FALSE;
                     event->configure.width = oeo.resize.width;
                     event->configure.height = oeo.resize.height;
+                    break;
+
+                  case OrbEventOption_Scale:
+                    g_print ("[GTK EVENT]   -> SCALE to %dx\n", oeo.scale.scale);
+                    _gdk_orbital_window_update_size_scale(item->window, 0, 0, oeo.scale.scale);
                     break;
 
                   case OrbEventOption_Focus:
@@ -347,6 +353,9 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     event->motion.y_root = last_mouse_y;
                     
                     event->motion.state = (last_btn_left ? GDK_BUTTON1_MASK : 0);
+                    // gdk_event_set_screen (event, display_orbital->screen);
+                    // gdk_event_set_seat (event, seat);
+                    
                     break;
 
                   case OrbEventOption_Button:
@@ -393,8 +402,13 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     event->scroll.time = GDK_CURRENT_TIME;
                     event->scroll.delta_x = (gdouble)oeo.scroll.x;
                     event->scroll.delta_y = (gdouble)oeo.scroll.y;
-                    event->scroll.is_stop = FALSE;
-                    
+                    event->scroll.x = last_mouse_x;
+                    event->scroll.y = last_mouse_y;
+                    event->scroll.x_root = last_mouse_x;
+                    event->scroll.y_root = last_mouse_y;
+                    // gdk_event_set_screen (event, display_orbital->screen);
+                    // gdk_event_set_seat (event, seat);
+                      
                     break;
 
                   case OrbEventOption_Move:
