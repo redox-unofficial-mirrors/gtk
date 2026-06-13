@@ -63,7 +63,8 @@ struct _GdkOrbitalDisplay
 
   GdkOrbitalShellVariant shell_variant;
 
-  /* Orbital fields below */
+  /* TODO: Orbital egl in mesa uses wl_display as placeholder */
+  struct wl_display *orb_display;
   struct gtk_shell1 *gtk_shell;
 
   /* Keep track of the ID's of the known globals and their corresponding

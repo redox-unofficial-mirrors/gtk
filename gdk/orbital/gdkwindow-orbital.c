@@ -74,6 +74,9 @@ struct _GdkWindowImplOrbital
   gboolean suspended;
 
   guint frame_clock_idle_id;
+
+  EGLSurface  egl_surface;
+  EGLSurface  dummy_egl_surface;
 };
 
 struct _GdkWindowImplOrbitalClass
@@ -500,6 +503,119 @@ gdk_orbital_window_destroy (GdkWindow *window,
                             gboolean   foreign_destroy)
 {
   gdk_orbital_window_hide_surface (window);
+}
+
+EGLSurface
+gdk_orbital_window_get_egl_surface (GdkWindow *window,
+                                    EGLConfig  config)
+{
+  GdkOrbitalDisplay *display = GDK_ORBITAL_DISPLAY (gdk_window_get_display (window));
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  void *orb_window = _gdk_orbital_window_get_native (window);
+
+  if (orb_window && impl->egl_surface == NULL)
+    {
+      impl->egl_surface =
+        eglCreateWindowSurface (display->egl_display, config, orb_window_fd(orb_window), NULL);
+
+      if (impl->egl_surface == EGL_NO_SURFACE)
+        {
+          g_warning ("eglCreateWindowSurface Failed");
+        }
+    }
+
+  return impl->egl_surface;
+}
+
+
+EGLSurface
+gdk_orbital_window_get_dummy_egl_surface (GdkWindow *window,
+                                          EGLConfig  config)
+{
+  GdkOrbitalDisplay *display = GDK_ORBITAL_DISPLAY (gdk_window_get_display (window));
+  GdkWindowImplOrbital *impl;
+
+  g_return_val_if_fail (GDK_IS_ORBITAL_WINDOW (window), NULL);
+  impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+
+  if (impl->dummy_egl_surface == NULL)
+    {
+      EGLint dummy_attribs[] = {
+        EGL_WIDTH, 1,
+        EGL_HEIGHT, 1,
+        EGL_NONE
+      };
+
+      impl->dummy_egl_surface = eglCreatePbufferSurface (display->egl_display, 
+                                                         config, 
+                                                         dummy_attribs);
+      
+      if (impl->dummy_egl_surface == EGL_NO_SURFACE)
+        {
+          g_warning ("eglCreatePbufferSurface Failed");
+        }
+    }
+
+  return impl->dummy_egl_surface;
+}
+
+gboolean
+gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
+                                             GdkGLContext *context)
+{
+  GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  GdkOrbitalGLContext *context_orbital;
+  GdkWindow *window;
+  EGLSurface egl_surface;
+
+  if (context == NULL)
+    {
+      eglMakeCurrent(display_orbital->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                     EGL_NO_CONTEXT);
+      return TRUE;
+    }
+
+  context_orbital = GDK_ORBITAL_GL_CONTEXT (context);
+  window = gdk_gl_context_get_window (context);
+
+  if (context_orbital->is_attached)
+    {
+      GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl_window->impl);
+      
+      if (impl->egl_surface == NULL)
+        {
+          impl->egl_surface = gdk_orbital_window_get_egl_surface (
+                                  window->impl_window, 
+                                  context_orbital->egl_config
+                              );
+        }
+      egl_surface = impl->egl_surface;
+    }
+  else
+    {
+      if (display_orbital->have_egl_surfaceless_context)
+        egl_surface = EGL_NO_SURFACE;
+      else
+        egl_surface = gdk_orbital_window_get_dummy_egl_surface (window->impl_window,
+                      context_orbital->egl_config);
+    }
+
+  if (!eglMakeCurrent (display_orbital->egl_display, egl_surface,
+                       egl_surface, context_orbital->egl_context))
+    {
+      g_warning ("eglMakeCurrent Failed");
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+
+void
+gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
+                                  cairo_region_t *painted,
+                                  cairo_region_t *damage)
+{
 }
 
 

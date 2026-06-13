@@ -57,21 +57,122 @@ gdk_orbital_window_invalidate_for_new_frame (GdkWindow      *window,
   cairo_region_union_rectangle (update_area, &window_rect);
 }
 
+#define N_EGL_ATTRS     16
+
 static gboolean
 gdk_orbital_gl_context_realize (GdkGLContext *context,
                                 GError      **error)
 {
-  g_set_error_literal (error, GDK_GL_ERROR,
-                       GDK_GL_ERROR_NOT_AVAILABLE,
-                       _("No GL Orbital"));
-  return FALSE;
-}
+  GdkOrbitalGLContext *context_orbital = GDK_ORBITAL_GL_CONTEXT (context);
+  GdkDisplay *display = gdk_gl_context_get_display (context);
+  GdkGLContext *share = gdk_gl_context_get_shared_context (context);
+  GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  EGLContext ctx;
+  EGLint context_attribs[N_EGL_ATTRS];
+  int major, minor, flags;
+  gboolean debug_bit, forward_bit;
+  gboolean legacy_bit = false;
+  gboolean use_es = true;
+  int i = 0;
 
-static void
-gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
-                                  cairo_region_t *painted,
-                                  cairo_region_t *damage)
-{
+  gdk_gl_context_get_required_version (context, &major, &minor);
+  debug_bit = gdk_gl_context_get_debug_enabled (context);
+  forward_bit = gdk_gl_context_get_forward_compatible (context);
+  // legacy_bit = (_gdk_gl_flags & GDK_GL_LEGACY) != 0 ||
+  //              (share != NULL && gdk_gl_context_is_legacy (share));
+  // use_es = (_gdk_gl_flags & GDK_GL_GLES) != 0 ||
+  //          (share != NULL && gdk_gl_context_get_use_es (share));
+
+  flags = 0;
+
+  if (debug_bit)
+    flags |= EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
+  if (forward_bit)
+    flags |= EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR;
+
+  if (!use_es)
+    {
+      eglBindAPI (EGL_OPENGL_API);
+
+      /* We want a core profile, unless in legacy mode */
+      context_attribs[i++] = EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR;
+      context_attribs[i++] = legacy_bit
+                           ? EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR
+                           : EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR;
+
+      /* Specify the version */
+      context_attribs[i++] = EGL_CONTEXT_MAJOR_VERSION_KHR;
+      context_attribs[i++] = legacy_bit ? 3 : major;
+      context_attribs[i++] = EGL_CONTEXT_MINOR_VERSION_KHR;
+      context_attribs[i++] = legacy_bit ? 0 : minor;
+    }
+  else
+    {
+      eglBindAPI (EGL_OPENGL_ES_API);
+
+      context_attribs[i++] = EGL_CONTEXT_CLIENT_VERSION;
+      if (major == 3)
+        context_attribs[i++] = 3;
+      else
+        context_attribs[i++] = 2;
+    }
+
+  /* Specify the flags */
+  context_attribs[i++] = EGL_CONTEXT_FLAGS_KHR;
+  context_attribs[i++] = flags;
+
+  context_attribs[i++] = EGL_NONE;
+  g_assert (i < N_EGL_ATTRS);
+
+  GDK_NOTE (OPENGL, g_message ("Creating EGL context version %d.%d (debug:%s, forward:%s, legacy:%s, es:%s)",
+                               major, minor,
+                               debug_bit ? "yes" : "no",
+                               forward_bit ? "yes" : "no",
+                               legacy_bit ? "yes" : "no",
+                               use_es ? "yes" : "no"));
+
+  ctx = eglCreateContext (display_orbital->egl_display,
+                          context_orbital->egl_config,
+                          share != NULL ? GDK_ORBITAL_GL_CONTEXT (share)->egl_context
+                                        : EGL_NO_CONTEXT,
+                          context_attribs);
+
+  if (ctx == NULL && !legacy_bit)
+    {
+      g_assert (context_attribs[0] == EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
+      context_attribs[1] = EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR;
+      context_attribs[3] = 3;
+      context_attribs[5] = 0;
+
+      eglBindAPI (EGL_OPENGL_API);
+
+      legacy_bit = TRUE;
+      use_es = FALSE;
+
+      GDK_NOTE (OPENGL, g_message ("eglCreateContext failed, switching to legacy"));
+      ctx = eglCreateContext (display_orbital->egl_display,
+                              context_orbital->egl_config,
+                              share != NULL ? GDK_ORBITAL_GL_CONTEXT (share)->egl_context
+                                            : EGL_NO_CONTEXT,
+                              context_attribs);
+    }
+
+  if (ctx == NULL)
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_NOT_AVAILABLE,
+                           _("Unable to create a GL context"));
+      return FALSE;
+    }
+
+  GDK_NOTE (OPENGL, g_message ("Created EGL context[%p]", ctx));
+
+  context_orbital->egl_context = ctx;
+
+  gdk_gl_context_set_is_legacy (context, legacy_bit);
+  gdk_gl_context_set_use_es (context, use_es);
+
+  return TRUE;
 }
 
 static void
@@ -91,15 +192,185 @@ gdk_orbital_gl_context_init (GdkOrbitalGLContext *self)
 {
 }
 
+static EGLDisplay
+gdk_orbital_get_display (GdkOrbitalDisplay *display_orbital)
+{
+  EGLDisplay dpy = NULL;
+
+  if (epoxy_has_egl_extension (NULL, "EGL_KHR_platform_base"))
+    {
+      PFNEGLGETPLATFORMDISPLAYPROC getPlatformDisplay =
+	(void *) eglGetProcAddress ("eglGetPlatformDisplay");
+
+      if (getPlatformDisplay)
+	dpy = getPlatformDisplay (EGL_PLATFORM_REDOX_EXT,
+				  display_orbital->orb_display,
+				  NULL);
+      if (dpy)
+	return dpy;
+    }
+
+  if (epoxy_has_egl_extension (NULL, "EGL_EXT_platform_base"))
+    {
+      PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+	(void *) eglGetProcAddress ("eglGetPlatformDisplayEXT");
+
+      if (getPlatformDisplay)
+	dpy = getPlatformDisplay (EGL_PLATFORM_REDOX_EXT,
+				  display_orbital->orb_display,
+				  NULL);
+      if (dpy)
+	return dpy;
+    }
+
+  return eglGetDisplay ((EGLNativeDisplayType) display_orbital->orb_display);
+}
+
+
+#define MAX_EGL_ATTRS   30
+
+static gboolean
+find_eglconfig_for_window (GdkWindow  *window,
+                           EGLConfig  *egl_config_out,
+                           EGLint     *min_swap_interval_out,
+                           GError    **error)
+{
+  GdkDisplay *display = gdk_window_get_display (window);
+  GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  GdkVisual *visual = gdk_window_get_visual (window);
+  EGLint attrs[MAX_EGL_ATTRS];
+  EGLint count;
+  EGLConfig *configs, chosen_config;
+  gboolean use_rgba;
+
+  int i = 0;
+
+  attrs[i++] = EGL_SURFACE_TYPE;
+  attrs[i++] = EGL_WINDOW_BIT;
+
+  attrs[i++] = EGL_COLOR_BUFFER_TYPE;
+  attrs[i++] = EGL_RGB_BUFFER;
+
+  attrs[i++] = EGL_RED_SIZE;
+  attrs[i++] = 8;
+  attrs[i++] = EGL_GREEN_SIZE;
+  attrs[i++] = 8;
+  attrs[i++] = EGL_BLUE_SIZE;
+  attrs[i++] = 8;
+
+  use_rgba = (visual == gdk_screen_get_rgba_visual (gdk_display_get_default_screen (display)));
+
+  if (use_rgba)
+    {
+      attrs[i++] = EGL_ALPHA_SIZE;
+      attrs[i++] = 8;
+    }
+  else
+    {
+      attrs[i++] = EGL_ALPHA_SIZE;
+      attrs[i++] = 0;
+    }
+
+  attrs[i++] = EGL_NONE;
+  g_assert (i < MAX_EGL_ATTRS);
+
+  if (!eglChooseConfig (display_orbital->egl_display, attrs, NULL, 0, &count) || count < 1)
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_UNSUPPORTED_FORMAT,
+                           _("No available configurations for the given pixel format"));
+      return FALSE;
+    }
+
+  configs = g_new (EGLConfig, count);
+
+  if (!eglChooseConfig (display_orbital->egl_display, attrs, configs, count, &count) || count < 1)
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_UNSUPPORTED_FORMAT,
+                           _("No available configurations for the given pixel format"));
+      return FALSE;
+    }
+
+  /* Pick first valid configuration i guess? */
+  chosen_config = configs[0];
+
+  if (!eglGetConfigAttrib (display_orbital->egl_display, chosen_config,
+                           EGL_MIN_SWAP_INTERVAL, min_swap_interval_out))
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_NOT_AVAILABLE,
+                           "Could not retrieve the minimum swap interval");
+      g_free (configs);
+      return FALSE;
+    }
+
+  if (egl_config_out != NULL)
+    *egl_config_out = chosen_config;
+
+  g_free (configs);
+
+  return TRUE;
+}
+
 gboolean
 gdk_orbital_display_init_gl (GdkDisplay *display,
                              GdkGLContext *share)
 {
   GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  EGLint major, minor;
+  EGLDisplay dpy;
+  gboolean use_es = true;
 
-  /* TODO */
-  display_orbital->have_egl = FALSE;
-  return FALSE;
+  if (display_orbital->have_egl)
+    return TRUE;
+
+  dpy = gdk_orbital_get_display (display_orbital);
+
+  if (dpy == NULL)
+    return FALSE;
+
+  if (!eglInitialize (dpy, &major, &minor))
+    return FALSE;
+
+  // use_es = (_gdk_gl_flags & GDK_GL_GLES) != 0 ||
+  //          (share != NULL && gdk_gl_context_get_use_es (share));
+  if (!eglBindAPI (use_es ? EGL_OPENGL_ES_API : EGL_OPENGL_API))
+      return FALSE;
+
+  display_orbital->egl_display = dpy;
+  display_orbital->egl_major_version = major;
+  display_orbital->egl_minor_version = minor;
+
+  display_orbital->have_egl = TRUE;
+
+  display_orbital->have_egl_khr_create_context =
+    epoxy_has_egl_extension (dpy, "EGL_KHR_create_context");
+
+  display_orbital->have_egl_buffer_age =
+    epoxy_has_egl_extension (dpy, "EGL_EXT_buffer_age");
+
+  display_orbital->have_egl_swap_buffers_with_damage =
+    epoxy_has_egl_extension (dpy, "EGL_EXT_swap_buffers_with_damage");
+
+  display_orbital->have_egl_surfaceless_context =
+    epoxy_has_egl_extension (dpy, "EGL_KHR_surfaceless_context");
+
+  GDK_NOTE (OPENGL,
+            g_message ("EGL API version %d.%d found\n"
+                       " - Vendor: %s\n"
+                       " - Version: %s\n"
+                       " - Client APIs: %s\n"
+                       " - Extensions:\n"
+                       "\t%s",
+                       display_orbital->egl_major_version,
+                       display_orbital->egl_minor_version,
+                       eglQueryString (dpy, EGL_VENDOR),
+                       eglQueryString (dpy, EGL_VERSION),
+                       eglQueryString (dpy, EGL_CLIENT_APIS),
+                       eglQueryString (dpy, EGL_EXTENSIONS)));
+
+  return TRUE;
 }
 
 GdkGLContext *
@@ -108,15 +379,43 @@ gdk_orbital_window_create_gl_context (GdkWindow     *window,
                                       GdkGLContext  *share,
                                       GError       **error)
 {
-  g_set_error_literal (error, GDK_GL_ERROR,
-                       GDK_GL_ERROR_NOT_AVAILABLE,
-                       _("TODO EGL Orbital"));
-  return NULL;
-}
 
-gboolean
-gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
-                                             GdkGLContext *context)
-{
-  return FALSE;
+  GdkDisplay *display = gdk_window_get_display (window);
+  GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  GdkOrbitalGLContext *context;
+  EGLConfig config;
+
+  if (!gdk_orbital_display_init_gl (display, share))
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_NOT_AVAILABLE,
+                           _("No GL implementation is available"));
+      return NULL;
+    }
+
+  if (!display_orbital->have_egl_khr_create_context)
+    {
+      g_set_error_literal (error, GDK_GL_ERROR,
+                           GDK_GL_ERROR_UNSUPPORTED_PROFILE,
+                           _("Core GL is not available on EGL implementation"));
+      return NULL;
+    }
+
+  if (!find_eglconfig_for_window (window, &config,
+                                  &display_orbital->egl_min_swap_interval,
+                                  error))
+    return NULL;
+
+  context = g_object_new (GDK_TYPE_ORBITAL_GL_CONTEXT,
+                          "display", display,
+                          "window", window,
+                          "shared-context", share,
+                          NULL);
+
+  context->egl_config = config;
+  context->is_attached = attached;
+
+  gdk_gl_context_set_use_es (GDK_GL_CONTEXT (context), TRUE);
+
+  return GDK_GL_CONTEXT (context);
 }

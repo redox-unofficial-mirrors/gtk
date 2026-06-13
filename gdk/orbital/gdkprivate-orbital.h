@@ -299,4 +299,9 @@ void * _gdk_orbital_window_get_native (GdkWindow *window);
 void gdk_orbital_event_source_add_window    (GdkDisplay *display, GdkWindow *window);
 void gdk_orbital_event_source_remove_window (GdkDisplay *display, GdkWindow *window);
 
+void
+gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
+                                  cairo_region_t *painted,
+                                  cairo_region_t *damage);
+
 #endif /* __GDK_PRIVATE_ORBITAL_H__ */
