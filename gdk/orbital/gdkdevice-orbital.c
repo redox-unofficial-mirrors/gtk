@@ -287,6 +287,11 @@ gdk_orbital_device_grab (GdkDevice    *device,
   GdkOrbitalPointerData *pointer = GDK_ORBITAL_DEVICE (device)->pointer;
   void *orb_window = _gdk_orbital_window_get_native (window);
 
+  if (!pointer) {
+    g_print("no pointer on gdk_orbital_device_grab!\n");
+    return GDK_GRAB_BROKEN;
+  }
+
   if (pointer->grab_window != NULL && time_ != 0 && pointer->grab_time > time_)
     return GDK_GRAB_ALREADY_GRABBED;
 
