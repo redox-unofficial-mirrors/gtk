@@ -29,7 +29,9 @@
 #include "gdkinternals.h"
 #include "gdkmain.h"
 
+#ifdef GDK_ORBITAL_ENABLE_EGL
 #include <epoxy/egl.h>
+#endif
 
 G_BEGIN_DECLS
 
@@ -37,8 +39,10 @@ struct _GdkOrbitalGLContext
 {
   GdkGLContext parent_instance;
 
+#ifdef GDK_ORBITAL_ENABLE_EGL
   EGLContext egl_context;
   EGLConfig egl_config;
+#endif
   gboolean is_attached;
 };
 

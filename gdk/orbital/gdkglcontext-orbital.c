@@ -37,11 +37,6 @@
 
 G_DEFINE_TYPE (GdkOrbitalGLContext, gdk_orbital_gl_context, GDK_TYPE_GL_CONTEXT)
 
-static void
-gdk_orbital_gl_context_dispose (GObject *gobject)
-{
-  G_OBJECT_CLASS (gdk_orbital_gl_context_parent_class)->dispose (gobject);
-}
 
 void
 gdk_orbital_window_invalidate_for_new_frame (GdkWindow      *window,
@@ -56,6 +51,8 @@ gdk_orbital_window_invalidate_for_new_frame (GdkWindow      *window,
 
   cairo_region_union_rectangle (update_area, &window_rect);
 }
+
+#ifdef GDK_ORBITAL_ENABLE_EGL
 
 #define N_EGL_ATTRS     16
 
@@ -175,23 +172,6 @@ gdk_orbital_gl_context_realize (GdkGLContext *context,
   return TRUE;
 }
 
-static void
-gdk_orbital_gl_context_class_init (GdkOrbitalGLContextClass *klass)
-{
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
-  GdkGLContextClass *context_class = GDK_GL_CONTEXT_CLASS (klass);
-
-  gobject_class->dispose = gdk_orbital_gl_context_dispose;
-
-  context_class->realize = gdk_orbital_gl_context_realize;
-  context_class->end_frame = gdk_orbital_gl_context_end_frame;
-}
-
-static void
-gdk_orbital_gl_context_init (GdkOrbitalGLContext *self)
-{
-}
-
 static EGLDisplay
 gdk_orbital_get_display (GdkOrbitalDisplay *display_orbital)
 {
@@ -201,19 +181,6 @@ gdk_orbital_get_display (GdkOrbitalDisplay *display_orbital)
     {
       PFNEGLGETPLATFORMDISPLAYPROC getPlatformDisplay =
 	(void *) eglGetProcAddress ("eglGetPlatformDisplay");
-
-      if (getPlatformDisplay)
-	dpy = getPlatformDisplay (EGL_PLATFORM_REDOX_EXT,
-				  display_orbital->orb_display,
-				  NULL);
-      if (dpy)
-	return dpy;
-    }
-
-  if (epoxy_has_egl_extension (NULL, "EGL_EXT_platform_base"))
-    {
-      PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
-	(void *) eglGetProcAddress ("eglGetPlatformDisplayEXT");
 
       if (getPlatformDisplay)
 	dpy = getPlatformDisplay (EGL_PLATFORM_REDOX_EXT,
@@ -418,4 +385,57 @@ gdk_orbital_window_create_gl_context (GdkWindow     *window,
   gdk_gl_context_set_use_es (GDK_GL_CONTEXT (context), TRUE);
 
   return GDK_GL_CONTEXT (context);
+}
+
+#else
+
+static gboolean
+gdk_orbital_gl_context_realize (GdkGLContext *context,
+                                GError      **error)
+{
+  return FALSE;
+}
+
+gboolean
+gdk_orbital_display_init_gl (GdkDisplay *display,
+                             GdkGLContext *share)
+{
+  return FALSE;
+}
+
+GdkGLContext *
+gdk_orbital_window_create_gl_context (GdkWindow     *window,
+                                      gboolean       attached,
+                                      GdkGLContext  *share,
+                                      GError       **error)
+{
+  g_set_error_literal (error, GDK_GL_ERROR,
+                        GDK_GL_ERROR_NOT_AVAILABLE,
+                        _("No GL implementation is available"));
+  return NULL;
+}
+
+#endif // GDK_ORBITAL_ENABLE_EGL
+
+static void
+gdk_orbital_gl_context_dispose (GObject *gobject)
+{
+  G_OBJECT_CLASS (gdk_orbital_gl_context_parent_class)->dispose (gobject);
+}
+
+static void
+gdk_orbital_gl_context_class_init (GdkOrbitalGLContextClass *klass)
+{
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  GdkGLContextClass *context_class = GDK_GL_CONTEXT_CLASS (klass);
+
+  gobject_class->dispose = gdk_orbital_gl_context_dispose;
+
+  context_class->realize = gdk_orbital_gl_context_realize;
+  context_class->end_frame = gdk_orbital_gl_context_end_frame;
+}
+
+static void
+gdk_orbital_gl_context_init (GdkOrbitalGLContext *self)
+{
 }

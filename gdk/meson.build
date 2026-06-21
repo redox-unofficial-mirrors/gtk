@@ -266,7 +266,7 @@ gdk_sources = [
   deprecated_gdk_sources,
 ]
 
-if wayland_enabled or broadway_enabled
+if wayland_enabled or broadway_enabled or orbital_enabled
   if cc.has_function('shm_open')
     shmlib = []
   elif cc.has_function('shm_open', args : '-lrt')

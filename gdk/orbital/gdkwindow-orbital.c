@@ -595,6 +595,8 @@ static void gdk_orbital_window_begin_move_drag (GdkWindow *window, GdkDevice *d,
     }
 }
 
+#ifdef GDK_ORBITAL_ENABLE_EGL
+
 EGLSurface
 gdk_orbital_window_get_egl_surface (GdkWindow *window,
                                     EGLConfig  config)
@@ -700,6 +702,23 @@ gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
   return TRUE;
 }
 
+#else
+
+EGLSurface
+gdk_orbital_window_get_dummy_egl_surface (GdkWindow *window,
+                                          EGLConfig  config)
+{
+  return NULL;
+}
+
+gboolean
+gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
+                                             GdkGLContext *context)
+{
+  return FALSE;
+}
+
+#endif // GDK_ORBITAL_ENABLE_EGL
 
 void
 gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
