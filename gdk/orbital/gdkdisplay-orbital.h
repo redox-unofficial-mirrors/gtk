@@ -34,7 +34,9 @@
 
 #include "gdkdisplayprivate.h"
 
+#ifdef GDK_ORBITAL_ENABLE_EGL
 #include <epoxy/egl.h>
+#endif
 
 G_BEGIN_DECLS
 
@@ -63,7 +65,8 @@ struct _GdkOrbitalDisplay
 
   GdkOrbitalShellVariant shell_variant;
 
-  /* Orbital fields below */
+  /* TODO: Orbital egl in mesa uses wl_display as placeholder */
+  struct wl_display *orb_display;
   struct gtk_shell1 *gtk_shell;
 
   /* Keep track of the ID's of the known globals and their corresponding
@@ -84,6 +87,7 @@ struct _GdkOrbitalDisplay
 
   GPtrArray *monitors;
 
+#ifdef GDK_ORBITAL_ENABLE_EGL
   /* egl info */
   EGLDisplay egl_display;
   int egl_major_version;
@@ -95,6 +99,7 @@ struct _GdkOrbitalDisplay
   guint have_egl_swap_buffers_with_damage : 1;
   guint have_egl_surfaceless_context : 1;
   EGLint egl_min_swap_interval;
+#endif
 };
 
 struct _GdkOrbitalDisplayClass

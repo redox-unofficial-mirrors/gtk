@@ -218,6 +218,11 @@ GdkWindow *_gdk_orbital_screen_create_root_window (GdkScreen *screen,
                                                    int width,
                                                    int height);
 
+void _gdk_orbital_window_update_size_scale (GdkWindow *window,
+                                int32_t    width,
+                                int32_t    height,
+                                int        scale);
+
 GdkScreen *_gdk_orbital_screen_new (GdkDisplay *display);
 void _gdk_orbital_screen_add_output (GdkScreen *screen,
                                      guint32    id,
@@ -298,5 +303,10 @@ void gdk_orbital_window_restore_shortcuts (GdkWindow *window,
 void * _gdk_orbital_window_get_native (GdkWindow *window);
 void gdk_orbital_event_source_add_window    (GdkDisplay *display, GdkWindow *window);
 void gdk_orbital_event_source_remove_window (GdkDisplay *display, GdkWindow *window);
+
+void
+gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
+                                  cairo_region_t *painted,
+                                  cairo_region_t *damage);
 
 #endif /* __GDK_PRIVATE_ORBITAL_H__ */

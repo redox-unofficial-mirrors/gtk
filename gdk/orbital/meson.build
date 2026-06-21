@@ -32,12 +32,15 @@ gdk_orbital_deps = [
   orbitaldep,
 ]
 
+GDK_ORBITAL_CFLAGS = ['-DGDK_COMPILATION', '-DG_LOG_DOMAIN="Gdk"', '-DINSIDE_GDK_ORBITAL'] + common_cflags
+
+if orbital_has_egl
+  GDK_ORBITAL_CFLAGS += '-DGDK_ORBITAL_ENABLE_EGL'
+endif
+
 libgdk_orbital = static_library('gdk-orbital',
                                 gdk_orbital_sources, gdkconfig, gdkenum_h,
                                 include_directories: [ confinc, gdkinc, ],
-                                c_args: [
-                                  '-DGDK_COMPILATION',
-                                  '-DG_LOG_DOMAIN="Gdk"',
-                                ] + common_cflags,
+                                c_args: GDK_ORBITAL_CFLAGS,
                                 link_args: common_ldflags,
                                 dependencies: [ gdk_deps, gdk_orbital_deps, ])

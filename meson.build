@@ -694,6 +694,12 @@ endif
 
 if orbital_enabled
   pc_gdk_extra_libs += ['-lorbital']
+
+  # Check whether libepoxy is built with EGL support on Redox
+  orbital_has_egl = epoxy_dep.get_variable(
+    pkgconfig: 'epoxy_has_egl',
+    internal: 'epoxy_has_egl',
+    default_value: '0') == '1'
 endif
 
 # IMModules stuff-unfortunately we need to put items here
