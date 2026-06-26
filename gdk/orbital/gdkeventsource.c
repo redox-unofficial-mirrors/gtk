@@ -250,8 +250,9 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     break;
 
                   case OrbEventOption_Scale:
-                    g_print ("[GTK EVENT]   -> SCALE to %dx\n", oeo.scale.scale);
-                    _gdk_orbital_window_update_size_scale(item->window, 0, 0, oeo.scale.scale);
+                    gdouble rscale =  oeo.scale.scale / (gdouble)oeo.scale.baseline;
+                    g_print ("[GTK EVENT]   -> SCALE to %d / %d (%fx)\n", oeo.scale.scale, oeo.scale.baseline, rscale);
+                    _gdk_orbital_window_update_size_scale(item->window, 0, 0, rscale);
                     break;
 
                   case OrbEventOption_Focus:

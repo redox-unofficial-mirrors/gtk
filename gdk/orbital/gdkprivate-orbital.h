@@ -221,7 +221,7 @@ GdkWindow *_gdk_orbital_screen_create_root_window (GdkScreen *screen,
 void _gdk_orbital_window_update_size_scale (GdkWindow *window,
                                 int32_t    width,
                                 int32_t    height,
-                                int        scale);
+                                gdouble    scale);
 
 GdkScreen *_gdk_orbital_screen_new (GdkDisplay *display);
 void _gdk_orbital_screen_add_output (GdkScreen *screen,
