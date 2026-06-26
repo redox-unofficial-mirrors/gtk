@@ -69,7 +69,7 @@ struct _GdkWindowImplOrbital
   GdkWindowTypeHint hint;
   GdkWindow *transient_for;
 
-  int scale;
+  gdouble scale;
   gboolean mapped;
   gboolean suspended;
 
@@ -148,7 +148,7 @@ static void
 gdk_orbital_window_update_size (GdkWindow *window,
                                 int32_t    width,
                                 int32_t    height,
-                                int        scale)
+                                gdouble    scale)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   GdkRectangle area;
@@ -185,7 +185,7 @@ gdk_orbital_window_update_size (GdkWindow *window,
 void _gdk_orbital_window_update_size_scale (GdkWindow *window,
                                 int32_t    width,
                                 int32_t    height,
-                                int        scale)
+                                gdouble     scale)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
 
