@@ -334,7 +334,7 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     break;
 
                   case OrbEventOption_Mouse:
-                    g_print ("[GTK EVENT]   -> MOUSE MOTION (x: %d, y: %d)\n", oeo.mouse.x, oeo.mouse.y);
+                    // g_print ("[GTK EVENT]   -> MOUSE MOTION (x: %d, y: %d)\n", oeo.mouse.x, oeo.mouse.y);
                     
                     last_mouse_x = oeo.mouse.x;
                     last_mouse_y = oeo.mouse.y;
@@ -388,6 +388,33 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     EMIT_BTN(oeo.button.right, last_btn_right, 3);
                     #undef EMIT_BTN
 
+                    // TODO: Proper grab handling instead of this
+                    if (oeo.button.left == 0 && oeo.button.middle == 0 && oeo.button.right == 0)
+                      {
+                        GdkEvent *enter_event = gdk_event_new (GDK_ENTER_NOTIFY);
+                        
+                        if (core_pointer)
+                          {
+                            gdk_event_set_device (enter_event, core_pointer);
+                            gdk_event_set_source_device (enter_event, core_pointer);
+                          }
+                          
+                        enter_event->crossing.window = g_object_ref (item->window);
+                        enter_event->crossing.send_event = FALSE;
+                        enter_event->crossing.time = GDK_CURRENT_TIME;
+                        
+                        enter_event->crossing.x = last_mouse_x;
+                        enter_event->crossing.y = last_mouse_y;
+                        enter_event->crossing.x_root = last_mouse_x;
+                        enter_event->crossing.y_root = last_mouse_y;
+                        
+                        enter_event->crossing.mode = GDK_CROSSING_UNGRAB; 
+                        enter_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+                        enter_event->crossing.focus = TRUE;
+                        enter_event->crossing.state = 0;
+                        
+                        _gdk_orbital_display_deliver_event (display, enter_event);
+                      }
                     event = NULL;
                     break;
 
@@ -399,19 +426,50 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                       gdk_event_set_source_device (event, core_pointer);
                     }
                     event->scroll.window = g_object_ref (item->window);
+                    event->scroll.send_event = FALSE;
                     event->scroll.direction = GDK_SCROLL_SMOOTH;
                     event->scroll.time = GDK_CURRENT_TIME;
-                    event->scroll.delta_x = (gdouble)oeo.scroll.x;
-                    event->scroll.delta_y = (gdouble)oeo.scroll.y;
+                    // TODO: anyway to adjust sensitivity?
+                    event->scroll.delta_x = (gdouble)oeo.scroll.x / 2;
+                    event->scroll.delta_y = -(gdouble)oeo.scroll.y / 2;
                     event->scroll.x = last_mouse_x;
                     event->scroll.y = last_mouse_y;
                     event->scroll.x_root = last_mouse_x;
                     event->scroll.y_root = last_mouse_y;
+                    event->scroll.state = 0;
                     // gdk_event_set_screen (event, display_orbital->screen);
                     // gdk_event_set_seat (event, seat);
                       
                     break;
+                  case OrbEventOption_Hover:
+                    {
+                      gboolean is_hovered = oeo.hover.entered ? TRUE : FALSE;
+                      g_print ("[GTK EVENT]   -> HOVER (in: %d)\n", is_hovered);
 
+                      event = gdk_event_new (is_hovered ? GDK_ENTER_NOTIFY : GDK_LEAVE_NOTIFY);
+
+                      if (core_pointer) 
+                        {
+                          gdk_event_set_device (event, core_pointer);
+                          gdk_event_set_source_device (event, core_pointer);
+                        }
+
+                      event->crossing.window = g_object_ref (item->window);
+                      event->crossing.send_event = FALSE;
+                      event->crossing.time = GDK_CURRENT_TIME;
+
+                      event->crossing.x = last_mouse_x;
+                      event->crossing.y = last_mouse_y;
+                      event->crossing.x_root = last_mouse_x;
+                      event->crossing.y_root = last_mouse_y;
+
+                      event->crossing.mode = GDK_CROSSING_NORMAL;
+                      event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+                      
+                      event->crossing.focus = TRUE; 
+                      event->crossing.state = 0;
+                    }
+                    break;
                   case OrbEventOption_Move:
                   case OrbEventOption_Screen:
                   case OrbEventOption_Unknown:

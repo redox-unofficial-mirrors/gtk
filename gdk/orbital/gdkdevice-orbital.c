@@ -51,7 +51,6 @@ struct _GdkOrbitalPointerData
   uint32_t grab_time;
 
   GdkCursor *cursor;
-  guint current_output_scale;
 };
 
 struct _GdkOrbitalSeat
@@ -555,8 +554,6 @@ _gdk_orbital_device_manager_add_seat (GdkDeviceManager *device_manager,
 
   init_devices (seat);
   
-  seat->pointer_info.current_output_scale = 1;
-
   gdk_display_add_seat (display, GDK_SEAT (seat));
 }
 
