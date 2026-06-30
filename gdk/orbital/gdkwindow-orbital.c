@@ -73,6 +73,8 @@ struct _GdkWindowImplOrbital
   gboolean mapped;
   gboolean suspended;
 
+  GdkWMDecoration decorations;
+
   guint frame_clock_idle_id;
 
   EGLSurface  egl_surface;
@@ -214,7 +216,8 @@ _gdk_orbital_screen_create_root_window (GdkScreen *screen, int width, int height
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
 
   impl->wrapper = GDK_WINDOW (window);
-  impl->scale = 1;
+  impl->scale = 1.0;
+  impl->decorations = GDK_DECOR_ALL;
 
   window->window_type = GDK_WINDOW_ROOT;
   window->depth = 32;
@@ -237,10 +240,7 @@ static void
 gdk_orbital_window_create_surface (GdkWindow *window)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
-  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_BORDERLESS | ORB_WINDOW_SCALABLE;
-
-  if (window->window_type == GDK_WINDOW_TOPLEVEL)
-    flags |= ORB_WINDOW_RESIZABLE;
+  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_RESIZABLE | ORB_WINDOW_SCALABLE;
 
   impl->orb_window = orb_window_new_flags (-1, -1,
                                            MAX(1, window->width), 
@@ -595,6 +595,44 @@ static void gdk_orbital_window_begin_move_drag (GdkWindow *window, GdkDevice *d,
     }
 }
 
+static void gdk_orbital_window_set_decorations (GdkWindow  *window, GdkWMDecoration  decorations)
+{
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  void *orb_window = _gdk_orbital_window_get_native (window);
+  if (!orb_window)
+    return;
+
+  impl->decorations = decorations;
+
+  gboolean wants_borderless = FALSE;
+  gboolean wants_resizable = TRUE;
+
+  if ((decorations & GDK_DECOR_ALL) == 0)
+    {
+      if ((decorations & GDK_DECOR_TITLE) == 0 && (decorations & GDK_DECOR_BORDER) == 0)
+          wants_borderless = TRUE;
+      if ((decorations & GDK_DECOR_RESIZEH) == 0 || (decorations & GDK_DECOR_BORDER) == 0)
+          wants_resizable = FALSE;
+    }
+
+  write(orb_window_fd(impl->orb_window), wants_borderless ? "F,l,1" : "F,l,0", 5);
+  write(orb_window_fd(impl->orb_window), wants_resizable ? "F,r,1" : "F,r,0", 5);
+}
+
+static gboolean gdk_orbital_window_get_decorations (GdkWindow *window, GdkWMDecoration *decorations) { 
+  g_return_val_if_fail (GDK_IS_WINDOW (window), FALSE);
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+
+  if (impl->decorations == 0)
+    return FALSE;
+
+  if (decorations)
+    *decorations = impl->decorations;
+
+  return TRUE;
+}
+
+
 #ifdef GDK_ORBITAL_ENABLE_EGL
 
 EGLSurface
@@ -788,8 +826,6 @@ static void gdk_orbital_window_set_keep_above (GdkWindow *window, gboolean setti
 static void gdk_orbital_window_set_keep_below (GdkWindow *window, gboolean setting) {}
 static GdkWindow *gdk_orbital_window_get_group (GdkWindow *window) { return NULL; }
 static void gdk_orbital_window_set_group (GdkWindow *window, GdkWindow *leader) {}
-static void gdk_orbital_window_set_decorations (GdkWindow *window, GdkWMDecoration decorations) {}
-static gboolean gdk_orbital_window_get_decorations (GdkWindow *window, GdkWMDecoration *decorations) { return FALSE; }
 static void gdk_orbital_window_set_functions (GdkWindow *window, GdkWMFunction functions) {}
 static void gdk_orbital_window_set_opacity (GdkWindow *window, gdouble opacity) {}
 static void gdk_orbital_window_set_composited (GdkWindow *window, gboolean composited) {}

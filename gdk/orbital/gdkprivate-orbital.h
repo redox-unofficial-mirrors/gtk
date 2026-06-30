@@ -208,7 +208,7 @@ GdkDragContext * gdk_orbital_device_get_drop_context (GdkDevice *gdk_device);
 void     _gdk_orbital_display_deliver_event (GdkDisplay *display, GdkEvent *event);
 GSource *_gdk_orbital_display_event_source_new (GdkDisplay *display);
 void     _gdk_orbital_display_queue_events (GdkDisplay *display);
-guint    _gdk_orbital_get_keysym_from_scancode (uint32_t scancode);
+guint    _gdk_orbital_get_xkb_keycode (uint32_t scancode);
 
 GdkAppLaunchContext *_gdk_orbital_display_get_app_launch_context (GdkDisplay *display);
 

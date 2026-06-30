@@ -268,7 +268,11 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     event->focus_change.in = oeo.focus.focused ? TRUE : FALSE;
                     break;
 
-                  case OrbEventOption_TextInput:
+                  /* 
+                    ---- Disabled in favor to XKB keyboard layout
+
+                    case OrbEventOption_TextInput:
+                  
                     g_print ("[GTK EVENT]   -> TextInput (character: %u)\n", oeo.text_input.character);
                     
                     event = gdk_event_new (GDK_KEY_PRESS);
@@ -293,6 +297,7 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     
                     event->key.state = current_modifiers; 
                     break;
+                  */
 
                   case OrbEventOption_Key:
                     g_print ("[DB_EVENTS] -> KEY (scancode: %d, pressed: %d)\n", 
@@ -309,32 +314,85 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     event->key.window = g_object_ref (item->window);
                     event->key.send_event = FALSE;
                     event->key.time = GDK_CURRENT_TIME;
-                    event->key.hardware_keycode = oeo.key.scancode;
+                    event->key.hardware_keycode = _gdk_orbital_get_xkb_keycode(oeo.key.scancode);
+                    event->key.keyval = GDK_KEY_VoidSymbol;
                     gdk_event_set_scancode (event, oeo.key.scancode);
-                    
-                    event->key.keyval = _gdk_orbital_get_keysym_from_scancode (oeo.key.scancode);
-                    
-                    if (event->key.keyval == GDK_KEY_Shift_L || event->key.keyval == GDK_KEY_Shift_R)
+
+                    if (oeo.key.scancode == ORB_KEY_LEFT_SHIFT || oeo.key.scancode == ORB_KEY_RIGHT_SHIFT)
                       {
                         if (oeo.key.pressed) current_modifiers |= GDK_SHIFT_MASK;
                         else current_modifiers &= ~GDK_SHIFT_MASK;
+                        event->key.is_modifier = TRUE;
                       }
-                    else if (event->key.keyval == GDK_KEY_Control_L || event->key.keyval == GDK_KEY_Control_R)
+                    else if (oeo.key.scancode == ORB_KEY_LEFT_CTRL || oeo.key.scancode == ORB_KEY_RIGHT_CTRL)
                       {
                         if (oeo.key.pressed) current_modifiers |= GDK_CONTROL_MASK;
                         else current_modifiers &= ~GDK_CONTROL_MASK;
+                        event->key.is_modifier = TRUE;
                       }
-                    else if (event->key.keyval == GDK_KEY_Alt_L || event->key.keyval == GDK_KEY_Alt_R)
+                    else if (oeo.key.scancode == ORB_KEY_ALT || oeo.key.scancode == ORB_KEY_ALT_GR)
                       {
                         if (oeo.key.pressed) current_modifiers |= GDK_MOD1_MASK;
                         else current_modifiers &= ~GDK_MOD1_MASK;
+                        event->key.is_modifier = TRUE;
+                      }
+                    else 
+                      {
+                        event->key.is_modifier = FALSE;
                       }
 
                     event->key.state = current_modifiers;
+
+                    gdk_keymap_translate_keyboard_state (gdk_keymap_get_for_display (display),
+                                event->key.hardware_keycode,
+                                event->key.state,
+                                event->key.group,
+                                &event->key.keyval,
+                                NULL, NULL, NULL);
+    
+                    gunichar c = 0;
+                    gchar buf[7];
+
+                    event->key.string = NULL;
+
+                    /* Fill in ->string since apps depend on it, taken from the x11 backend. */
+                    if (event->key.keyval != GDK_KEY_VoidSymbol)
+                      c = gdk_keyval_to_unicode (event->key.keyval);
+                    if (c)
+                      {
+                        gsize bytes_written;
+                        gint len;
+
+                        len = g_unichar_to_utf8 (c, buf);
+                        buf[len] = '\0';
+                        
+                        event->key.string = g_locale_from_utf8 (buf, len,
+                                  NULL, &bytes_written,
+                                  NULL);
+                        if (event->key.string)
+                    event->key.length = bytes_written;
+                      }
+                    else if (event->key.keyval == GDK_KEY_Escape)
+                      {
+                        event->key.length = 1;
+                        event->key.string = g_strdup ("\033");
+                      }
+                    else if (event->key.keyval == GDK_KEY_Return ||
+                      event->key.keyval == GDK_KEY_KP_Enter)
+                      {
+                        event->key.length = 1;
+                        event->key.string = g_strdup ("\r");
+                      }
+
+                    if (!event->key.string)
+                      {
+                        event->key.length = 0;
+                        event->key.string = g_strdup ("");
+                      }
                     break;
 
                   case OrbEventOption_Mouse:
-                    g_print ("[GTK EVENT]   -> MOUSE MOTION (x: %d, y: %d)\n", oeo.mouse.x, oeo.mouse.y);
+                    // g_print ("[GTK EVENT]   -> MOUSE MOTION (x: %d, y: %d)\n", oeo.mouse.x, oeo.mouse.y);
                     
                     last_mouse_x = oeo.mouse.x;
                     last_mouse_y = oeo.mouse.y;
@@ -388,6 +446,33 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     EMIT_BTN(oeo.button.right, last_btn_right, 3);
                     #undef EMIT_BTN
 
+                    // TODO: Proper grab handling instead of this
+                    if (oeo.button.left == 0 && oeo.button.middle == 0 && oeo.button.right == 0)
+                      {
+                        GdkEvent *enter_event = gdk_event_new (GDK_ENTER_NOTIFY);
+                        
+                        if (core_pointer)
+                          {
+                            gdk_event_set_device (enter_event, core_pointer);
+                            gdk_event_set_source_device (enter_event, core_pointer);
+                          }
+                          
+                        enter_event->crossing.window = g_object_ref (item->window);
+                        enter_event->crossing.send_event = FALSE;
+                        enter_event->crossing.time = GDK_CURRENT_TIME;
+                        
+                        enter_event->crossing.x = last_mouse_x;
+                        enter_event->crossing.y = last_mouse_y;
+                        enter_event->crossing.x_root = last_mouse_x;
+                        enter_event->crossing.y_root = last_mouse_y;
+                        
+                        enter_event->crossing.mode = GDK_CROSSING_UNGRAB; 
+                        enter_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+                        enter_event->crossing.focus = TRUE;
+                        enter_event->crossing.state = 0;
+                        
+                        _gdk_orbital_display_deliver_event (display, enter_event);
+                      }
                     event = NULL;
                     break;
 
@@ -399,19 +484,50 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                       gdk_event_set_source_device (event, core_pointer);
                     }
                     event->scroll.window = g_object_ref (item->window);
+                    event->scroll.send_event = FALSE;
                     event->scroll.direction = GDK_SCROLL_SMOOTH;
                     event->scroll.time = GDK_CURRENT_TIME;
-                    event->scroll.delta_x = (gdouble)oeo.scroll.x;
-                    event->scroll.delta_y = (gdouble)oeo.scroll.y;
+                    // TODO: anyway to adjust sensitivity?
+                    event->scroll.delta_x = (gdouble)oeo.scroll.x / 2;
+                    event->scroll.delta_y = -(gdouble)oeo.scroll.y / 2;
                     event->scroll.x = last_mouse_x;
                     event->scroll.y = last_mouse_y;
                     event->scroll.x_root = last_mouse_x;
                     event->scroll.y_root = last_mouse_y;
+                    event->scroll.state = 0;
                     // gdk_event_set_screen (event, display_orbital->screen);
                     // gdk_event_set_seat (event, seat);
                       
                     break;
+                  case OrbEventOption_Hover:
+                    {
+                      gboolean is_hovered = oeo.hover.entered ? TRUE : FALSE;
+                      g_print ("[GTK EVENT]   -> HOVER (in: %d)\n", is_hovered);
 
+                      event = gdk_event_new (is_hovered ? GDK_ENTER_NOTIFY : GDK_LEAVE_NOTIFY);
+
+                      if (core_pointer) 
+                        {
+                          gdk_event_set_device (event, core_pointer);
+                          gdk_event_set_source_device (event, core_pointer);
+                        }
+
+                      event->crossing.window = g_object_ref (item->window);
+                      event->crossing.send_event = FALSE;
+                      event->crossing.time = GDK_CURRENT_TIME;
+
+                      event->crossing.x = last_mouse_x;
+                      event->crossing.y = last_mouse_y;
+                      event->crossing.x_root = last_mouse_x;
+                      event->crossing.y_root = last_mouse_y;
+
+                      event->crossing.mode = GDK_CROSSING_NORMAL;
+                      event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+                      
+                      event->crossing.focus = TRUE; 
+                      event->crossing.state = 0;
+                    }
+                    break;
                   case OrbEventOption_Move:
                   case OrbEventOption_Screen:
                   case OrbEventOption_Unknown:
@@ -433,119 +549,119 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
     }
 }
 
+// similar to winit physicalkey_to_scancode
+// https://github.com/rust-windowing/winit/blob/master/winit-common/src/xkb/keymap.rs
 guint
-_gdk_orbital_get_keysym_from_scancode (uint32_t scancode)
+_gdk_orbital_get_xkb_keycode (uint32_t scancode)
 {
   switch (scancode)
     {
-      case ORB_KEY_ESC:           return GDK_KEY_Escape;
-      case ORB_KEY_F1:            return GDK_KEY_F1;
-      case ORB_KEY_F2:            return GDK_KEY_F2;
-      case ORB_KEY_F3:            return GDK_KEY_F3;
-      case ORB_KEY_F4:            return GDK_KEY_F4;
-      case ORB_KEY_F5:            return GDK_KEY_F5;
-      case ORB_KEY_F6:            return GDK_KEY_F6;
-      case ORB_KEY_F7:            return GDK_KEY_F7;
-      case ORB_KEY_F8:            return GDK_KEY_F8;
-      case ORB_KEY_F9:            return GDK_KEY_F9;
-      case ORB_KEY_F10:           return GDK_KEY_F10;
-      case ORB_KEY_F11:           return GDK_KEY_F11;
-      case ORB_KEY_F12:           return GDK_KEY_F12;
-      case ORB_KEY_PRTSC:         return GDK_KEY_Print;
-      case ORB_KEY_SCROLL:        return GDK_KEY_Scroll_Lock;
-      case ORB_KEY_NUM:           return GDK_KEY_Num_Lock;
-      case ORB_KEY_1:             return GDK_KEY_1;
-      case ORB_KEY_2:             return GDK_KEY_2;
-      case ORB_KEY_3:             return GDK_KEY_3;
-      case ORB_KEY_4:             return GDK_KEY_4;
-      case ORB_KEY_5:             return GDK_KEY_5;
-      case ORB_KEY_6:             return GDK_KEY_6;
-      case ORB_KEY_7:             return GDK_KEY_7;
-      case ORB_KEY_8:             return GDK_KEY_8;
-      case ORB_KEY_9:             return GDK_KEY_9;
-      case ORB_KEY_0:             return GDK_KEY_0;
-      case ORB_KEY_A:             return GDK_KEY_A;
-      case ORB_KEY_B:             return GDK_KEY_B;
-      case ORB_KEY_C:             return GDK_KEY_C;
-      case ORB_KEY_D:             return GDK_KEY_D;
-      case ORB_KEY_E:             return GDK_KEY_E;
-      case ORB_KEY_F:             return GDK_KEY_F;
-      case ORB_KEY_G:             return GDK_KEY_G;
-      case ORB_KEY_H:             return GDK_KEY_H;
-      case ORB_KEY_I:             return GDK_KEY_I;
-      case ORB_KEY_J:             return GDK_KEY_J;
-      case ORB_KEY_K:             return GDK_KEY_K;
-      case ORB_KEY_L:             return GDK_KEY_L;
-      case ORB_KEY_M:             return GDK_KEY_M;
-      case ORB_KEY_N:             return GDK_KEY_N;
-      case ORB_KEY_O:             return GDK_KEY_O;
-      case ORB_KEY_P:             return GDK_KEY_P;
-      case ORB_KEY_Q:             return GDK_KEY_Q;
-      case ORB_KEY_R:             return GDK_KEY_R;
-      case ORB_KEY_S:             return GDK_KEY_S;
-      case ORB_KEY_T:             return GDK_KEY_T;
-      case ORB_KEY_U:             return GDK_KEY_U;
-      case ORB_KEY_V:             return GDK_KEY_V;
-      case ORB_KEY_W:             return GDK_KEY_W;
-      case ORB_KEY_X:             return GDK_KEY_X;
-      case ORB_KEY_Y:             return GDK_KEY_Y;
-      case ORB_KEY_Z:             return GDK_KEY_Z;
-      case ORB_KEY_TAB:           return GDK_KEY_Tab;
-      case ORB_KEY_CAPS:          return GDK_KEY_Caps_Lock;
-      case ORB_KEY_ENTER:         return GDK_KEY_Return;
-      case ORB_KEY_BKSP:          return GDK_KEY_BackSpace;
-      case ORB_KEY_SPACE:         return GDK_KEY_space;
-      case ORB_KEY_MINUS:         return GDK_KEY_minus;
-      case ORB_KEY_EQUALS:        return GDK_KEY_equal;
-      case ORB_KEY_BRACE_OPEN:    return GDK_KEY_bracketleft;
-      case ORB_KEY_BRACE_CLOSE:   return GDK_KEY_bracketright;
-      case ORB_KEY_BACKSLASH:     return GDK_KEY_backslash;
-      case ORB_KEY_SEMICOLON:     return GDK_KEY_semicolon;
-      case ORB_KEY_QUOTE:         return GDK_KEY_apostrophe;
-      case ORB_KEY_COMMA:         return GDK_KEY_comma;
-      case ORB_KEY_PERIOD:        return GDK_KEY_period;
-      case ORB_KEY_SLASH:         return GDK_KEY_slash;
-      case ORB_KEY_TICK:          return GDK_KEY_grave;
-      case ORB_KEY_INS:           return GDK_KEY_Insert;
-      case ORB_KEY_DEL:           return GDK_KEY_Delete;
-      case ORB_KEY_HOME:          return GDK_KEY_Home;
-      case ORB_KEY_END:           return GDK_KEY_End;
-      case ORB_KEY_PGUP:          return GDK_KEY_Page_Up;
-      case ORB_KEY_PGDN:          return GDK_KEY_Page_Down;
-      case ORB_KEY_UP:            return GDK_KEY_Up;
-      case ORB_KEY_DOWN:          return GDK_KEY_Down;
-      case ORB_KEY_LEFT:          return GDK_KEY_Left;
-      case ORB_KEY_RIGHT:         return GDK_KEY_Right;
-      case ORB_KEY_NUM_0:         return GDK_KEY_KP_0;
-      case ORB_KEY_NUM_1:         return GDK_KEY_KP_1;
-      case ORB_KEY_NUM_2:         return GDK_KEY_KP_2;
-      case ORB_KEY_NUM_3:         return GDK_KEY_KP_3;
-      case ORB_KEY_NUM_4:         return GDK_KEY_KP_4;
-      case ORB_KEY_NUM_5:         return GDK_KEY_KP_5;
-      case ORB_KEY_NUM_6:         return GDK_KEY_KP_6;
-      case ORB_KEY_NUM_7:         return GDK_KEY_KP_7;
-      case ORB_KEY_NUM_8:         return GDK_KEY_KP_8;
-      case ORB_KEY_NUM_9:         return GDK_KEY_KP_9;
-      case ORB_KEY_NUM_ASTERISK:  return GDK_KEY_KP_Multiply;
-      case ORB_KEY_NUM_MINUS:     return GDK_KEY_KP_Subtract;
-      case ORB_KEY_NUM_PLUS:      return GDK_KEY_KP_Add;
-      case ORB_KEY_NUM_PERIOD:    return GDK_KEY_KP_Decimal;
-      case ORB_KEY_NUM_SLASH:     return GDK_KEY_KP_Divide;
-      case ORB_KEY_NUM_ENTER:     return GDK_KEY_KP_Enter;
-      case ORB_KEY_LEFT_SHIFT:    return GDK_KEY_Shift_L;
-      case ORB_KEY_RIGHT_SHIFT:   return GDK_KEY_Shift_R;
-      case ORB_KEY_LEFT_CTRL:     return GDK_KEY_Control_L;
-      case ORB_KEY_RIGHT_CTRL:    return GDK_KEY_Control_R;
-      case ORB_KEY_ALT:           return GDK_KEY_Alt_L;
-      case ORB_KEY_LEFT_SUPER:    return GDK_KEY_Super_L;
-      case ORB_KEY_RIGHT_SUPER:   return GDK_KEY_Super_R;
-      case ORB_KEY_APP:           return GDK_KEY_Menu;
-      case ORB_KEY_POWER:         return GDK_KEY_PowerOff;
-      case ORB_KEY_SLEEP:         return GDK_KEY_Sleep;
+      case ORB_KEY_ESC:           return 1 + 8;
+      case ORB_KEY_1:             return 2 + 8;
+      case ORB_KEY_2:             return 3 + 8;
+      case ORB_KEY_3:             return 4 + 8;
+      case ORB_KEY_4:             return 5 + 8;
+      case ORB_KEY_5:             return 6 + 8;
+      case ORB_KEY_6:             return 7 + 8;
+      case ORB_KEY_7:             return 8 + 8;
+      case ORB_KEY_8:             return 9 + 8;
+      case ORB_KEY_9:             return 10 + 8;
+      case ORB_KEY_0:             return 11 + 8;
+      case ORB_KEY_MINUS:         return 12 + 8;
+      case ORB_KEY_EQUALS:        return 13 + 8;
+      case ORB_KEY_BKSP:          return 14 + 8;
+      case ORB_KEY_TAB:           return 15 + 8;
+      case ORB_KEY_Q:             return 16 + 8;
+      case ORB_KEY_W:             return 17 + 8;
+      case ORB_KEY_E:             return 18 + 8;
+      case ORB_KEY_R:             return 19 + 8;
+      case ORB_KEY_T:             return 20 + 8;
+      case ORB_KEY_Y:             return 21 + 8;
+      case ORB_KEY_U:             return 22 + 8;
+      case ORB_KEY_I:             return 23 + 8;
+      case ORB_KEY_O:             return 24 + 8;
+      case ORB_KEY_P:             return 25 + 8;
+      case ORB_KEY_BRACE_OPEN:    return 26 + 8;
+      case ORB_KEY_BRACE_CLOSE:   return 27 + 8;
+      case ORB_KEY_ENTER:         return 28 + 8;
+      case ORB_KEY_LEFT_CTRL:     return 29 + 8;
+      case ORB_KEY_A:             return 30 + 8;
+      case ORB_KEY_S:             return 31 + 8;
+      case ORB_KEY_D:             return 32 + 8;
+      case ORB_KEY_F:             return 33 + 8;
+      case ORB_KEY_G:             return 34 + 8;
+      case ORB_KEY_H:             return 35 + 8;
+      case ORB_KEY_J:             return 36 + 8;
+      case ORB_KEY_K:             return 37 + 8;
+      case ORB_KEY_L:             return 38 + 8;
+      case ORB_KEY_SEMICOLON:     return 39 + 8;
+      case ORB_KEY_QUOTE:         return 40 + 8;
+      case ORB_KEY_TICK:          return 41 + 8;
+      case ORB_KEY_LEFT_SHIFT:    return 42 + 8;
+      case ORB_KEY_BACKSLASH:     return 43 + 8;
+      case ORB_KEY_Z:             return 44 + 8;
+      case ORB_KEY_X:             return 45 + 8;
+      case ORB_KEY_C:             return 46 + 8;
+      case ORB_KEY_V:             return 47 + 8;
+      case ORB_KEY_B:             return 48 + 8;
+      case ORB_KEY_N:             return 49 + 8;
+      case ORB_KEY_M:             return 50 + 8;
+      case ORB_KEY_COMMA:         return 51 + 8;
+      case ORB_KEY_PERIOD:        return 52 + 8;
+      case ORB_KEY_SLASH:         return 53 + 8;
+      case ORB_KEY_RIGHT_SHIFT:   return 54 + 8;
+      case ORB_KEY_NUM_ASTERISK:  return 55 + 8;
+      case ORB_KEY_ALT:           return 56 + 8;
+      case ORB_KEY_SPACE:         return 57 + 8;
+      case ORB_KEY_CAPS:          return 58 + 8;
+      case ORB_KEY_F1:            return 59 + 8;
+      case ORB_KEY_F2:            return 60 + 8;
+      case ORB_KEY_F3:            return 61 + 8;
+      case ORB_KEY_F4:            return 62 + 8;
+      case ORB_KEY_F5:            return 63 + 8;
+      case ORB_KEY_F6:            return 64 + 8;
+      case ORB_KEY_F7:            return 65 + 8;
+      case ORB_KEY_F8:            return 66 + 8;
+      case ORB_KEY_F9:            return 67 + 8;
+      case ORB_KEY_F10:           return 68 + 8;
+      case ORB_KEY_NUM:           return 69 + 8;
+      case ORB_KEY_SCROLL:        return 70 + 8;
+      case ORB_KEY_NUM_7:         return 71 + 8;
+      case ORB_KEY_NUM_8:         return 72 + 8;
+      case ORB_KEY_NUM_9:         return 73 + 8;
+      case ORB_KEY_NUM_MINUS:     return 74 + 8;
+      case ORB_KEY_NUM_4:         return 75 + 8;
+      case ORB_KEY_NUM_5:         return 76 + 8;
+      case ORB_KEY_NUM_6:         return 77 + 8;
+      case ORB_KEY_NUM_PLUS:      return 78 + 8;
+      case ORB_KEY_NUM_1:         return 79 + 8;
+      case ORB_KEY_NUM_2:         return 80 + 8;
+      case ORB_KEY_NUM_3:         return 81 + 8;
+      case ORB_KEY_NUM_0:         return 82 + 8;
+      case ORB_KEY_NUM_PERIOD:    return 83 + 8;
+      case ORB_KEY_F11:           return 87 + 8;
+      case ORB_KEY_F12:           return 88 + 8;
+      case ORB_KEY_NUM_ENTER:     return 96 + 8;
+      case ORB_KEY_RIGHT_CTRL:    return 97 + 8;
+      case ORB_KEY_NUM_SLASH:     return 98 + 8;
+      case ORB_KEY_PRTSC:         return 99 + 8;
+      case ORB_KEY_HOME:          return 102 + 8;
+      case ORB_KEY_UP:            return 103 + 8;
+      case ORB_KEY_PGUP:          return 104 + 8;
+      case ORB_KEY_LEFT:          return 105 + 8;
+      case ORB_KEY_RIGHT:         return 106 + 8;
+      case ORB_KEY_END:           return 107 + 8;
+      case ORB_KEY_DOWN:          return 108 + 8;
+      case ORB_KEY_PGDN:          return 109 + 8;
+      case ORB_KEY_INS:           return 110 + 8;
+      case ORB_KEY_DEL:           return 111 + 8;
+      case ORB_KEY_LEFT_SUPER:    return 125 + 8;
+      case ORB_KEY_RIGHT_SUPER:   return 126 + 8;
+      case ORB_KEY_APP:           return 127 + 8;
+      case ORB_KEY_POWER:         return 116 + 8;
+      case ORB_KEY_SLEEP:         return 142 + 8;
 
       default:
-        break;
+        return scancode + 8;
     }
-
-  return GDK_KEY_VoidSymbol;
 }
