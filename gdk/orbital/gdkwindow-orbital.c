@@ -242,9 +242,12 @@ gdk_orbital_window_create_surface (GdkWindow *window)
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_RESIZABLE | ORB_WINDOW_SCALABLE;
 
+  int phys_width  = MAX (1, (int)(window->width * impl->scale));
+  int phys_height = MAX (1, (int)(window->height * impl->scale));
+
   impl->orb_window = orb_window_new_flags (-1, -1,
-                                           MAX(1, window->width), 
-                                           MAX(1, window->height),
+                                           phys_width,
+                                           phys_height,
                                            impl->title ? impl->title : "",
                                            flags);
 
@@ -650,7 +653,7 @@ gdk_orbital_window_get_egl_surface (GdkWindow *window,
 
       if (impl->egl_surface == EGL_NO_SURFACE)
         {
-          g_warning ("eglCreateWindowSurface Failed");
+          g_warning ("eglCreateWindowSurface Failed (EGL error 0x%x)", eglGetError());
         }
     }
 
@@ -740,6 +743,46 @@ gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
   return TRUE;
 }
 
+void
+gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
+                                  cairo_region_t *painted,
+                                  cairo_region_t *damage)
+{
+  GdkWindow *window = gdk_gl_context_get_window (context);
+  GdkDisplay *display = gdk_window_get_display (window);
+  GdkOrbitalDisplay *display_orbital = GDK_ORBITAL_DISPLAY (display);
+  GdkOrbitalGLContext *context_orbital = GDK_ORBITAL_GL_CONTEXT (context);
+  EGLSurface egl_surface;
+
+  gdk_gl_context_make_current (context);
+
+  egl_surface = gdk_orbital_window_get_egl_surface (window->impl_window,
+                                                    context_orbital->egl_config);
+
+  if (display_orbital->have_egl_swap_buffers_with_damage && damage)
+    {
+      int i, j, n_rects = cairo_region_num_rectangles (damage);
+      EGLint *rects = g_new (EGLint, n_rects * 4);
+      cairo_rectangle_int_t rect;
+      int window_height = gdk_window_get_height (window);
+
+      for (i = 0, j = 0; i < n_rects; i++)
+        {
+          cairo_region_get_rectangle (damage, i, &rect);
+          rects[j++] = rect.x;
+          rects[j++] = window_height - rect.height - rect.y;
+          rects[j++] = rect.width;
+          rects[j++] = rect.height;
+        }
+      eglSwapBuffersWithDamageEXT (display_orbital->egl_display, egl_surface, rects, n_rects);
+      g_free (rects);
+    }
+  else
+    {
+      eglSwapBuffers (display_orbital->egl_display, egl_surface);
+    }
+}
+
 #else
 
 EGLSurface
@@ -756,14 +799,14 @@ gdk_orbital_display_make_gl_context_current (GdkDisplay   *display,
   return FALSE;
 }
 
-#endif // GDK_ORBITAL_ENABLE_EGL
-
 void
 gdk_orbital_gl_context_end_frame (GdkGLContext   *context,
                                   cairo_region_t *painted,
                                   cairo_region_t *damage)
 {
 }
+
+#endif // GDK_ORBITAL_ENABLE_EGL
 
 
 static void

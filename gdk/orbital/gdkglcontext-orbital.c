@@ -75,10 +75,6 @@ gdk_orbital_gl_context_realize (GdkGLContext *context,
   gdk_gl_context_get_required_version (context, &major, &minor);
   debug_bit = gdk_gl_context_get_debug_enabled (context);
   forward_bit = gdk_gl_context_get_forward_compatible (context);
-  // legacy_bit = (_gdk_gl_flags & GDK_GL_LEGACY) != 0 ||
-  //              (share != NULL && gdk_gl_context_is_legacy (share));
-  // use_es = (_gdk_gl_flags & GDK_GL_GLES) != 0 ||
-  //          (share != NULL && gdk_gl_context_get_use_es (share));
 
   flags = 0;
 
@@ -300,8 +296,6 @@ gdk_orbital_display_init_gl (GdkDisplay *display,
   if (!eglInitialize (dpy, &major, &minor))
     return FALSE;
 
-  // use_es = (_gdk_gl_flags & GDK_GL_GLES) != 0 ||
-  //          (share != NULL && gdk_gl_context_get_use_es (share));
   if (!eglBindAPI (use_es ? EGL_OPENGL_ES_API : EGL_OPENGL_API))
       return FALSE;
 
