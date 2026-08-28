@@ -233,14 +233,14 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
               switch (oeo.tag)
                 {
                   case OrbEventOption_Quit:
-                    g_print ("[GTK EVENT]   -> QUIT\n");
+                    // g_print ("[GTK EVENT]   -> QUIT\n");
                     event = gdk_event_new (GDK_DELETE);
                     event->any.window = g_object_ref (item->window);
                     event->any.send_event = FALSE;
                     break;
 
                   case OrbEventOption_Resize:
-                    g_print ("[GTK EVENT]   -> RESIZE to %dx%d\n", oeo.resize.width, oeo.resize.height);
+                    // g_print ("[GTK EVENT]   -> RESIZE to %dx%d\n", oeo.resize.width, oeo.resize.height);
                     _gdk_orbital_window_update_size_scale(item->window, oeo.resize.width, oeo.resize.height, 0);
                     event = gdk_event_new (GDK_CONFIGURE);
                     event->configure.window = g_object_ref (item->window);
@@ -251,12 +251,12 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
 
                   case OrbEventOption_Scale:
                     gdouble rscale =  oeo.scale.scale / (gdouble)oeo.scale.baseline;
-                    g_print ("[GTK EVENT]   -> SCALE to %d / %d (%fx)\n", oeo.scale.scale, oeo.scale.baseline, rscale);
+                    // g_print ("[GTK EVENT]   -> SCALE to %d / %d (%fx)\n", oeo.scale.scale, oeo.scale.baseline, rscale);
                     _gdk_orbital_window_update_size_scale(item->window, 0, 0, rscale);
                     break;
 
                   case OrbEventOption_Focus:
-                    g_print ("[GTK EVENT]   -> FOCUS (in: %d)\n", oeo.focus.focused);
+                    // g_print ("[GTK EVENT]   -> FOCUS (in: %d)\n", oeo.focus.focused);
                     event = gdk_event_new (GDK_FOCUS_CHANGE);
                     if (core_keyboard) 
                     {
@@ -418,7 +418,7 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     break;
 
                   case OrbEventOption_Button:
-                    g_print ("[GTK EVENT]   -> BUTTON (L:%d M:%d R:%d)\n", oeo.button.left, oeo.button.middle, oeo.button.right);
+                    // g_print ("[GTK EVENT]   -> BUTTON (L:%d M:%d R:%d)\n", oeo.button.left, oeo.button.middle, oeo.button.right);
                     
                     #define EMIT_BTN(orb_state, tracker, btn_num) \
                       if (orb_state != tracker) { \
@@ -477,7 +477,7 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                     break;
 
                   case OrbEventOption_Scroll:
-                    g_print ("[GTK EVENT]   -> SCROLL (y: %d)\n", oeo.scroll.y);
+                    // g_print ("[GTK EVENT]   -> SCROLL (y: %d)\n", oeo.scroll.y);
                     event = gdk_event_new (GDK_SCROLL);
                     if (core_pointer) {
                       gdk_event_set_device (event, core_pointer);
@@ -502,7 +502,7 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                   case OrbEventOption_Hover:
                     {
                       gboolean is_hovered = oeo.hover.entered ? TRUE : FALSE;
-                      g_print ("[GTK EVENT]   -> HOVER (in: %d)\n", is_hovered);
+                      // g_print ("[GTK EVENT]   -> HOVER (in: %d)\n", is_hovered);
 
                       event = gdk_event_new (is_hovered ? GDK_ENTER_NOTIFY : GDK_LEAVE_NOTIFY);
 
