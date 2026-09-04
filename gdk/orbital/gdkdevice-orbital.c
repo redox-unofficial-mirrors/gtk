@@ -190,6 +190,16 @@ get_coordinates (GdkDevice *device,
   GdkOrbitalPointerData *pointer = GDK_ORBITAL_DEVICE (device)->pointer;
   int root_x, root_y;
 
+  if (!pointer)
+    {
+      if (x) *x = 0;
+      if (y) *y = 0;
+      if (x_root) *x_root = 0;
+      if (y_root) *y_root = 0;
+      return;
+    }
+    
+
   if (x)
     *x = pointer->surface_x;
   if (y)
@@ -249,7 +259,7 @@ gdk_orbital_device_query_state (GdkDevice        *device,
   if (root_window)
     *root_window = gdk_screen_get_root_window (default_screen);
   if (child_window)
-    *child_window = g_list_find (window->children, pointer->focus) ? pointer->focus : NULL;
+    *child_window = (pointer && g_list_find (window->children, pointer->focus)) ? pointer->focus : NULL;
   if (mask)
     *mask = device_get_modifiers (device);
 
@@ -283,6 +293,9 @@ gdk_orbital_device_grab (GdkDevice    *device,
                          GdkCursor    *cursor,
                          guint32       time_)
 {
+  if (gdk_device_get_source (device) == GDK_SOURCE_KEYBOARD)
+    return GDK_GRAB_SUCCESS;
+
   GdkOrbitalPointerData *pointer = GDK_ORBITAL_DEVICE (device)->pointer;
   void *orb_window = _gdk_orbital_window_get_native (window);
 
@@ -314,6 +327,9 @@ static void
 gdk_orbital_device_ungrab (GdkDevice *device,
                            guint32    time_)
 {
+  if (gdk_device_get_source (device) == GDK_SOURCE_KEYBOARD)
+    return;
+
   GdkOrbitalPointerData *pointer = GDK_ORBITAL_DEVICE (device)->pointer;
   
   if (pointer->grab_window)
