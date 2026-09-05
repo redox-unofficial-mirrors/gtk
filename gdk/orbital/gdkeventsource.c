@@ -300,8 +300,8 @@ _gdk_orbital_display_queue_events (GdkDisplay *display)
                   */
 
                   case OrbEventOption_Key:
-                    g_print ("[DB_EVENTS] -> KEY (scancode: %d, pressed: %d)\n", 
-                             oeo.key.scancode, oeo.key.pressed);
+                    // g_print ("[DB_EVENTS] -> KEY (scancode: %d, pressed: %d)\n", 
+                    //         oeo.key.scancode, oeo.key.pressed);
                     
                     event = gdk_event_new (oeo.key.pressed ? GDK_KEY_PRESS : GDK_KEY_RELEASE);
                     
