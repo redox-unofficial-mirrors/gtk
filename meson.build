@@ -252,7 +252,8 @@ check_functions = [
   'rint',
   'log2',
   'exp2',
-  'sincos',
+  # FIXME: wrongly detected as defined
+  # 'sincos',
   'trunc',
   'localtime_r',
   'fmin',
