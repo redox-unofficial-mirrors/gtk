@@ -236,20 +236,50 @@ _gdk_orbital_screen_create_root_window (GdkScreen *screen, int width, int height
   return window;
 }
 
+static gboolean
+gdk_orbital_window_is_popup (GdkWindow *window, GdkWindowTypeHint type_hint)
+{
+  if (window->window_type == GDK_WINDOW_TEMP)
+    return TRUE;
+
+  switch (type_hint)
+    {
+    case GDK_WINDOW_TYPE_HINT_POPUP_MENU:
+    case GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU:
+    case GDK_WINDOW_TYPE_HINT_TOOLTIP:
+    case GDK_WINDOW_TYPE_HINT_COMBO:
+    case GDK_WINDOW_TYPE_HINT_MENU:
+    case GDK_WINDOW_TYPE_HINT_DND:
+      return TRUE;
+    default:
+      return FALSE;
+    }
+}
+
 static void
-gdk_orbital_window_create_surface (GdkWindow *window)
+gdk_orbital_window_create_surface (GdkWindow *window, GdkWindowTypeHint type_hint)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
-  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_RESIZABLE | ORB_WINDOW_SCALABLE;
-
+  
+  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_SCALABLE;
+  
+  gboolean is_popup = gdk_orbital_window_is_popup (window, type_hint);
+  flags |= is_popup ? (ORB_WINDOW_BORDERLESS | ORB_WINDOW_UNCLOSABLE | ORB_WINDOW_FRONT) 
+                    : ORB_WINDOW_RESIZABLE;
   int phys_width  = MAX (1, (int)(window->width * impl->scale));
   int phys_height = MAX (1, (int)(window->height * impl->scale));
 
-  impl->orb_window = orb_window_new_flags (-1, -1,
+  int pos_x = (window->x == 0) ? -1 : window->x;
+  int pos_y = (window->y == 0) ? -1 : window->y;
+
+  impl->orb_window = orb_window_new_flags (pos_x, pos_y,
                                            phys_width,
                                            phys_height,
                                            impl->title ? impl->title : "",
                                            flags);
+
+  window->x = orb_window_x(impl->orb_window);
+  window->y = orb_window_y(impl->orb_window);
 
   gdk_orbital_window_ensure_cairo_surface (window);
 }
@@ -323,6 +353,7 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
   GdkWindowImplOrbital *impl;
   GdkFrameClock *frame_clock;
   const char *title;
+  GdkWindowTypeHint type_hint = GDK_WINDOW_TYPE_HINT_NORMAL;
 
   impl = g_object_new (GDK_TYPE_WINDOW_IMPL_ORBITAL, NULL);
   window->impl = GDK_WINDOW_IMPL (impl);
@@ -330,6 +361,15 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
 
   g_object_ref (window);
   impl->scale = 1;
+  impl->decorations = GDK_DECOR_ALL;
+  
+  if (attributes_mask & GDK_WA_X)
+    window->x = attributes->x;
+  if (attributes_mask & GDK_WA_Y)
+    window->y = attributes->y;
+
+  if (attributes_mask & GDK_WA_TYPE_HINT)
+    type_hint = attributes->type_hint;
 
   if (attributes_mask & GDK_WA_TITLE)
     title = attributes->title;
@@ -338,7 +378,7 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
 
   impl->title = g_strdup (title);
 
-  gdk_orbital_window_create_surface (window);
+  gdk_orbital_window_create_surface (window, type_hint);
 
   if (attributes_mask & GDK_WA_TYPE_HINT)
     gdk_window_set_type_hint (window, attributes->type_hint);
@@ -443,7 +483,7 @@ gdk_orbital_window_show (GdkWindow *window,
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
 
   if (!impl->orb_window)
-    gdk_orbital_window_create_surface (window);
+    gdk_orbital_window_create_surface (window, impl->hint);
 
   impl->mapped = TRUE;
   _gdk_make_event (window, GDK_MAP, NULL, FALSE);
@@ -522,7 +562,7 @@ static void gdk_orbital_window_maximize (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,m,1", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_MAXIMIZED, TRUE);
   }
 }
 static void gdk_orbital_window_unmaximize (GdkWindow *window) {
@@ -533,7 +573,7 @@ static void gdk_orbital_window_unmaximize (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,m,0", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_MAXIMIZED, FALSE);
   }
 }
 static void gdk_orbital_window_fullscreen (GdkWindow *window) {
@@ -544,7 +584,7 @@ static void gdk_orbital_window_fullscreen (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,M,1", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_FULLSCREEN, TRUE);
   }
 }
 static void gdk_orbital_window_fullscreen_on_monitor (GdkWindow *window, gint monitor) {
@@ -558,7 +598,7 @@ static void gdk_orbital_window_unfullscreen (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,M,0", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_FULLSCREEN, FALSE);
   }
 }
 
@@ -607,19 +647,25 @@ static void gdk_orbital_window_set_decorations (GdkWindow  *window, GdkWMDecorat
 
   impl->decorations = decorations;
 
+  gboolean is_popup = gdk_orbital_window_is_popup (window, impl->hint);
   gboolean wants_borderless = FALSE;
   gboolean wants_resizable = TRUE;
 
-  if ((decorations & GDK_DECOR_ALL) == 0)
+  if (is_popup)
     {
-      if ((decorations & GDK_DECOR_TITLE) == 0 && (decorations & GDK_DECOR_BORDER) == 0)
+      wants_borderless = TRUE;
+      wants_resizable = FALSE;
+    }
+  else if ((decorations & GDK_DECOR_ALL) == 0)
+    {
+      if ((decorations & GDK_DECOR_TITLE) == 0)
           wants_borderless = TRUE;
-      if ((decorations & GDK_DECOR_RESIZEH) == 0 || (decorations & GDK_DECOR_BORDER) == 0)
+      if ((decorations & GDK_DECOR_RESIZEH) == 0)
           wants_resizable = FALSE;
     }
 
-  write(orb_window_fd(impl->orb_window), wants_borderless ? "F,l,1" : "F,l,0", 5);
-  write(orb_window_fd(impl->orb_window), wants_resizable ? "F,r,1" : "F,r,0", 5);
+  orb_window_set_flag(impl->orb_window, ORB_WINDOW_BORDERLESS, wants_borderless);
+  orb_window_set_flag(impl->orb_window, ORB_WINDOW_RESIZABLE, wants_resizable);
 }
 
 static gboolean gdk_orbital_window_get_decorations (GdkWindow *window, GdkWMDecoration *decorations) { 
