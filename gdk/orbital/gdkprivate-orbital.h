@@ -187,23 +187,12 @@ GdkDeviceManager *_gdk_orbital_device_manager_new (GdkDisplay *display);
 void              _gdk_orbital_device_manager_add_seat (GdkDeviceManager *device_manager,
                                                         guint32           id,
                                                         gpointer          seat);
+// TODO: implement
 void              _gdk_orbital_device_manager_remove_seat (GdkDeviceManager *device_manager,
                                                            guint32           id);
 
 GdkKeymap *_gdk_orbital_device_get_keymap (GdkDevice *device);
-uint32_t _gdk_orbital_device_get_implicit_grab_serial(GdkOrbitalDevice *device,
-                                                      const GdkEvent   *event);
-uint32_t _gdk_orbital_seat_get_last_implicit_grab_serial (GdkSeat           *seat,
-                                                          GdkEventSequence **sequence);
 GdkWindow * gdk_orbital_device_get_focus (GdkDevice *device);
-gpointer    gdk_orbital_device_get_data_device (GdkDevice *gdk_device);
-void gdk_orbital_seat_set_selection (GdkSeat  *seat,
-                                     gpointer  source);
-
-void gdk_orbital_seat_set_primary (GdkSeat  *seat,
-                                   gpointer  source);
-
-GdkDragContext * gdk_orbital_device_get_drop_context (GdkDevice *gdk_device);
 
 void     _gdk_orbital_display_deliver_event (GdkDisplay *display, GdkEvent *event);
 GSource *_gdk_orbital_display_event_source_new (GdkDisplay *display);
@@ -224,36 +213,10 @@ void _gdk_orbital_window_update_size_scale (GdkWindow *window,
                                 gdouble    scale);
 
 GdkScreen *_gdk_orbital_screen_new (GdkDisplay *display);
-void _gdk_orbital_screen_add_output (GdkScreen *screen,
-                                     guint32    id,
-                                     gpointer   output,
-                                     guint32    version);
-void _gdk_orbital_screen_remove_output (GdkScreen *screen,
-                                        guint32 id);
-int _gdk_orbital_screen_get_output_refresh_rate (GdkScreen *screen,
-                                                 gpointer   output);
-guint32 _gdk_orbital_screen_get_output_scale (GdkScreen *screen,
-                                              gpointer   output);
-gpointer _gdk_orbital_screen_get_wl_output (GdkScreen *screen,
-                                            gint monitor_num);
+
 
 void _gdk_orbital_screen_set_has_gtk_shell (GdkScreen       *screen);
 
-void _gdk_orbital_screen_init_xdg_output (GdkScreen *screen);
-
-void _gdk_orbital_window_set_grab_seat (GdkWindow      *window,
-                                        GdkSeat        *seat);
-
-guint32 _gdk_orbital_display_get_serial (GdkOrbitalDisplay *display_orbital);
-void _gdk_orbital_display_update_serial (GdkOrbitalDisplay *display_orbital,
-                                         guint32            serial);
-
-cairo_surface_t * _gdk_orbital_display_create_shm_surface (GdkOrbitalDisplay *display,
-                                                           int                width,
-                                                           int                height,
-                                                           guint              scale);
-gpointer _gdk_orbital_shm_surface_get_wl_buffer (cairo_surface_t *surface);
-gboolean _gdk_orbital_is_shm_surface (cairo_surface_t *surface);
 
 GdkOrbitalSelection * gdk_orbital_display_get_selection (GdkDisplay *display);
 GdkOrbitalSelection * gdk_orbital_selection_new (void);
@@ -277,9 +240,6 @@ void     gdk_orbital_selection_store   (GdkWindow    *window,
                                         GdkPropMode   mode,
                                         const guchar *data,
                                         gint          len);
-gpointer gdk_orbital_selection_get_data_source (GdkWindow *owner,
-                                                GdkAtom    selection);
-void gdk_orbital_selection_unset_data_source (GdkDisplay *display, GdkAtom selection);
 gboolean gdk_orbital_selection_set_current_offer_actions (GdkDisplay *display,
                                                           uint32_t    actions);
 
@@ -288,17 +248,14 @@ EGLSurface gdk_orbital_window_get_egl_surface (GdkWindow *window,
 EGLSurface gdk_orbital_window_get_dummy_egl_surface (GdkWindow *window,
                                                      EGLConfig config);
 
-gpointer gdk_orbital_window_get_gtk_surface (GdkWindow *window);
-
 void gdk_orbital_seat_set_global_cursor (GdkSeat   *seat,
                                          GdkCursor *cursor); 
+void gdk_orbital_seat_update_pointer_focus  (GdkSeat *seat, 
+                                             GdkWindow *window);
+void gdk_orbital_seat_update_pointer_coords (GdkSeat *seat, 
+                                             double x, 
+                                             double y);
 
-gpointer gdk_orbital_window_get_wl_output (GdkWindow *window);
-
-void gdk_orbital_window_inhibit_shortcuts (GdkWindow *window,
-                                           GdkSeat   *gdk_seat);
-void gdk_orbital_window_restore_shortcuts (GdkWindow *window,
-                                           GdkSeat   *gdk_seat);
 
 void * _gdk_orbital_window_get_native (GdkWindow *window);
 void gdk_orbital_event_source_add_window    (GdkDisplay *display, GdkWindow *window);

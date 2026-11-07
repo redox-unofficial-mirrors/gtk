@@ -56,6 +56,13 @@ static void gdk_orbital_window_init (GdkOrbitalWindow *orbital_window) {}
 
 G_DEFINE_TYPE (GdkOrbitalWindow, gdk_orbital_window, GDK_TYPE_WINDOW)
 
+typedef enum _PositionMethod
+{
+  POSITION_METHOD_NONE,
+  POSITION_METHOD_MOVE_RESIZE,
+  POSITION_METHOD_MOVE_TO_RECT
+} PositionMethod;
+
 struct _GdkWindowImplOrbital
 {
   GdkWindowImpl parent_instance;
@@ -79,6 +86,17 @@ struct _GdkWindowImplOrbital
 
   EGLSurface  egl_surface;
   EGLSurface  dummy_egl_surface;
+
+  PositionMethod position_method;
+
+  struct {
+    GdkRectangle rect;
+    GdkGravity rect_anchor;
+    GdkGravity window_anchor;
+    GdkAnchorHints anchor_hints;
+    gint rect_anchor_dx;
+    gint rect_anchor_dy;
+  } pending_move_to_rect;
 };
 
 struct _GdkWindowImplOrbitalClass
@@ -89,6 +107,8 @@ struct _GdkWindowImplOrbitalClass
 GType _gdk_window_impl_orbital_get_type (void);
 
 G_DEFINE_TYPE (GdkWindowImplOrbital, _gdk_window_impl_orbital, GDK_TYPE_WINDOW_IMPL)
+
+#include "gdkpopup-orbital.c"
 
 static void
 _gdk_window_impl_orbital_init (GdkWindowImplOrbital *impl)
@@ -236,20 +256,50 @@ _gdk_orbital_screen_create_root_window (GdkScreen *screen, int width, int height
   return window;
 }
 
+static gboolean
+gdk_orbital_window_is_popup (GdkWindow *window, GdkWindowTypeHint type_hint)
+{
+  if (window->window_type == GDK_WINDOW_TEMP)
+    return TRUE;
+
+  switch (type_hint)
+    {
+    case GDK_WINDOW_TYPE_HINT_POPUP_MENU:
+    case GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU:
+    case GDK_WINDOW_TYPE_HINT_TOOLTIP:
+    case GDK_WINDOW_TYPE_HINT_COMBO:
+    case GDK_WINDOW_TYPE_HINT_MENU:
+    case GDK_WINDOW_TYPE_HINT_DND:
+      return TRUE;
+    default:
+      return FALSE;
+    }
+}
+
 static void
-gdk_orbital_window_create_surface (GdkWindow *window)
+gdk_orbital_window_create_surface (GdkWindow *window, GdkWindowTypeHint type_hint)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
-  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_RESIZABLE | ORB_WINDOW_SCALABLE;
-
+  
+  uint32_t flags = ORB_WINDOW_ASYNC | ORB_WINDOW_TRANSPARENT | ORB_WINDOW_SCALABLE;
+  
+  gboolean is_popup = gdk_orbital_window_is_popup (window, type_hint);
+  flags |= is_popup ? (ORB_WINDOW_BORDERLESS | ORB_WINDOW_UNCLOSABLE | ORB_WINDOW_FRONT) 
+                    : ORB_WINDOW_RESIZABLE;
   int phys_width  = MAX (1, (int)(window->width * impl->scale));
   int phys_height = MAX (1, (int)(window->height * impl->scale));
 
-  impl->orb_window = orb_window_new_flags (-1, -1,
+  int pos_x = (window->x == 0) ? -1 : window->x;
+  int pos_y = (window->y == 0) ? -1 : window->y;
+
+  impl->orb_window = orb_window_new_flags (pos_x, pos_y,
                                            phys_width,
                                            phys_height,
                                            impl->title ? impl->title : "",
                                            flags);
+
+  window->x = orb_window_x(impl->orb_window);
+  window->y = orb_window_y(impl->orb_window);
 
   gdk_orbital_window_ensure_cairo_surface (window);
 }
@@ -323,6 +373,7 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
   GdkWindowImplOrbital *impl;
   GdkFrameClock *frame_clock;
   const char *title;
+  GdkWindowTypeHint type_hint = GDK_WINDOW_TYPE_HINT_NORMAL;
 
   impl = g_object_new (GDK_TYPE_WINDOW_IMPL_ORBITAL, NULL);
   window->impl = GDK_WINDOW_IMPL (impl);
@@ -330,6 +381,15 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
 
   g_object_ref (window);
   impl->scale = 1;
+  impl->decorations = GDK_DECOR_ALL;
+  
+  if (attributes_mask & GDK_WA_X)
+    window->x = attributes->x;
+  if (attributes_mask & GDK_WA_Y)
+    window->y = attributes->y;
+
+  if (attributes_mask & GDK_WA_TYPE_HINT)
+    type_hint = attributes->type_hint;
 
   if (attributes_mask & GDK_WA_TITLE)
     title = attributes->title;
@@ -338,7 +398,7 @@ _gdk_orbital_display_create_window_impl (GdkDisplay    *display,
 
   impl->title = g_strdup (title);
 
-  gdk_orbital_window_create_surface (window);
+  gdk_orbital_window_create_surface (window, type_hint);
 
   if (attributes_mask & GDK_WA_TYPE_HINT)
     gdk_window_set_type_hint (window, attributes->type_hint);
@@ -415,9 +475,7 @@ gdk_orbital_window_hide_surface (GdkWindow *window)
   if (impl->orb_window)
     {
       drop_cairo_surfaces (window);
-      gdk_orbital_event_source_remove_window (gdk_window_get_display (window), window);
-      orb_window_destroy (impl->orb_window);
-      impl->orb_window = NULL;
+      orb_window_set_flag(impl->orb_window, ORB_WINDOW_HIDDEN, TRUE);
     }
 
   impl->mapped = FALSE;
@@ -437,16 +495,80 @@ gdk_window_impl_orbital_finalize (GObject *object)
 }
 
 static void
+gdk_orbital_window_apply_popup_layout (GdkWindow *window)
+{
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+  GdkRectangle flipped_rect, final_rect;
+  gboolean flipped_x, flipped_y;
+  int parent_x = 0, parent_y = 0;
+
+  if (!impl->transient_for || impl->position_method != POSITION_METHOD_MOVE_TO_RECT)
+    return;
+
+  GdkRectangle ideal_rect;
+  calculate_popup_rect (window,
+                        impl->pending_move_to_rect.rect_anchor,
+                        impl->pending_move_to_rect.window_anchor,
+                        &ideal_rect);
+
+  calculate_moved_to_rect_result (window,
+                                  ideal_rect.x, ideal_rect.y,
+                                  window->width, window->height,
+                                  &flipped_rect,
+                                  &final_rect,
+                                  &flipped_x,
+                                  &flipped_y);
+
+  get_real_parent_and_translate (window, &parent_x, &parent_y);
+
+  int abs_x = parent_x + final_rect.x;
+  int abs_y = parent_y + final_rect.y;
+
+  window->x = abs_x;
+  window->y = abs_y;
+
+  if (impl->orb_window)
+    orb_window_set_pos (impl->orb_window, abs_x, abs_y);
+
+  g_signal_emit_by_name (window,
+                         "moved-to-rect",
+                         &flipped_rect,
+                         &final_rect,
+                         flipped_x,
+                         flipped_y);
+}
+
+static void
 gdk_orbital_window_show (GdkWindow *window,
                          gboolean   already_mapped)
 {
   GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
 
   if (!impl->orb_window)
-    gdk_orbital_window_create_surface (window);
+    {
+      gdk_orbital_window_create_surface (window, impl->hint);
+    }
+    
+  if (impl->orb_window)
+    {
+      if (impl->position_method == POSITION_METHOD_MOVE_TO_RECT)
+        {
+          gdk_orbital_window_apply_popup_layout (window);
+        }
+      else
+        {
+          orb_window_set_pos (impl->orb_window, window->x, window->y);
+        }
 
-  impl->mapped = TRUE;
-  _gdk_make_event (window, GDK_MAP, NULL, FALSE);
+      orb_window_set_flag (impl->orb_window, ORB_WINDOW_HIDDEN, FALSE);
+    }
+
+  if (!impl->mapped)
+    {
+      impl->mapped = TRUE;
+      _gdk_make_event (window, GDK_MAP, NULL, FALSE);
+      gdk_window_invalidate_rect (window, NULL, FALSE);
+    }
 }
 
 static void
@@ -522,7 +644,7 @@ static void gdk_orbital_window_maximize (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,m,1", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_MAXIMIZED, TRUE);
   }
 }
 static void gdk_orbital_window_unmaximize (GdkWindow *window) {
@@ -533,7 +655,7 @@ static void gdk_orbital_window_unmaximize (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,m,0", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_MAXIMIZED, FALSE);
   }
 }
 static void gdk_orbital_window_fullscreen (GdkWindow *window) {
@@ -544,7 +666,7 @@ static void gdk_orbital_window_fullscreen (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,M,1", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_FULLSCREEN, TRUE);
   }
 }
 static void gdk_orbital_window_fullscreen_on_monitor (GdkWindow *window, gint monitor) {
@@ -558,7 +680,7 @@ static void gdk_orbital_window_unfullscreen (GdkWindow *window) {
 
   impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
   if (impl->orb_window) {
-    write(orb_window_fd(impl->orb_window), "F,M,0", 5);
+    orb_window_set_flag(impl->orb_window, ORB_WINDOW_FULLSCREEN, FALSE);
   }
 }
 
@@ -567,7 +689,16 @@ gdk_orbital_window_destroy (GdkWindow *window,
                             gboolean   recursing,
                             gboolean   foreign_destroy)
 {
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+
   gdk_orbital_window_hide_surface (window);
+
+  if (impl->orb_window)
+    {
+      gdk_orbital_event_source_remove_window (gdk_window_get_display (window), window);
+      orb_window_destroy (impl->orb_window);
+      impl->orb_window = NULL;
+    }
 }
 
 static void gdk_orbital_window_begin_resize_drag (GdkWindow *window, GdkWindowEdge edge, GdkDevice *d, gint b, gint rx, gint ry, guint32 time)
@@ -607,19 +738,25 @@ static void gdk_orbital_window_set_decorations (GdkWindow  *window, GdkWMDecorat
 
   impl->decorations = decorations;
 
+  gboolean is_popup = gdk_orbital_window_is_popup (window, impl->hint);
   gboolean wants_borderless = FALSE;
   gboolean wants_resizable = TRUE;
 
-  if ((decorations & GDK_DECOR_ALL) == 0)
+  if (is_popup)
     {
-      if ((decorations & GDK_DECOR_TITLE) == 0 && (decorations & GDK_DECOR_BORDER) == 0)
+      wants_borderless = TRUE;
+      wants_resizable = FALSE;
+    }
+  else if ((decorations & GDK_DECOR_ALL) == 0)
+    {
+      if ((decorations & GDK_DECOR_TITLE) == 0)
           wants_borderless = TRUE;
-      if ((decorations & GDK_DECOR_RESIZEH) == 0 || (decorations & GDK_DECOR_BORDER) == 0)
+      if ((decorations & GDK_DECOR_RESIZEH) == 0)
           wants_resizable = FALSE;
     }
 
-  write(orb_window_fd(impl->orb_window), wants_borderless ? "F,l,1" : "F,l,0", 5);
-  write(orb_window_fd(impl->orb_window), wants_resizable ? "F,r,1" : "F,r,0", 5);
+  orb_window_set_flag(impl->orb_window, ORB_WINDOW_BORDERLESS, wants_borderless);
+  orb_window_set_flag(impl->orb_window, ORB_WINDOW_RESIZABLE, wants_resizable);
 }
 
 static gboolean gdk_orbital_window_get_decorations (GdkWindow *window, GdkWMDecoration *decorations) { 
@@ -826,13 +963,68 @@ gdk_orbital_window_set_dbus_properties_libgtk_only (GdkWindow  *window,
   maybe_set_gtk_surface_dbus_properties (window);
 }
 
+static void gdk_orbital_window_set_type_hint (GdkWindow *w, GdkWindowTypeHint h) 
+{ 
+  GDK_WINDOW_IMPL_ORBITAL(w->impl)->hint = h; 
+  
+  switch (h)
+    {
+      case GDK_WINDOW_TYPE_HINT_MENU:
+      case GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU:
+      case GDK_WINDOW_TYPE_HINT_POPUP_MENU:
+      case GDK_WINDOW_TYPE_HINT_TOOLTIP:
+      case GDK_WINDOW_TYPE_HINT_NOTIFICATION:
+      case GDK_WINDOW_TYPE_HINT_COMBO:
+      case GDK_WINDOW_TYPE_HINT_DND:
+      case GDK_WINDOW_TYPE_HINT_SPLASHSCREEN:
+        gdk_orbital_window_set_decorations(w, 0);
+        break;
+      default:
+        break;
+    }
+}
+
+static void gdk_orbital_window_set_override_redirect (GdkWindow *window, gboolean override_redirect) 
+{ 
+  if (override_redirect) 
+    {
+      gdk_orbital_window_set_decorations(window, 0);
+    }
+}
+
+static void gdk_window_orbital_move_to_rect (GdkWindow          *window,
+                                             const GdkRectangle *rect,
+                                             GdkGravity          rect_anchor,
+                                             GdkGravity          window_anchor,
+                                             GdkAnchorHints      anchor_hints,
+                                             gint                rect_anchor_dx,
+                                             gint                rect_anchor_dy)
+{
+  GdkWindowImplOrbital *impl = GDK_WINDOW_IMPL_ORBITAL (window->impl);
+
+  impl->pending_move_to_rect.rect = *rect;
+  sanitize_anchor_rect (window, &impl->pending_move_to_rect.rect);
+
+  impl->pending_move_to_rect.rect_anchor = rect_anchor;
+  impl->pending_move_to_rect.window_anchor = window_anchor;
+  impl->pending_move_to_rect.anchor_hints = anchor_hints;
+  impl->pending_move_to_rect.rect_anchor_dx = rect_anchor_dx;
+  impl->pending_move_to_rect.rect_anchor_dy = rect_anchor_dy;
+
+  impl->position_method = POSITION_METHOD_MOVE_TO_RECT;
+
+  if (impl->mapped)
+    {
+      gdk_orbital_window_apply_popup_layout (window);
+    }
+}
+
 static void gdk_window_orbital_set_events (GdkWindow *window, GdkEventMask event_mask) { GDK_WINDOW (window)->event_mask = event_mask; }
 static GdkEventMask gdk_window_orbital_get_events (GdkWindow *window) { return GDK_WINDOW_DESTROYED(window) ? 0 : GDK_WINDOW (window)->event_mask; }
 static void gdk_window_orbital_raise (GdkWindow *window) {}
 static void gdk_window_orbital_lower (GdkWindow *window) {}
 static void gdk_window_orbital_restack_under (GdkWindow *window, GList *native_siblings) {}
 static void gdk_window_orbital_restack_toplevel (GdkWindow *window, GdkWindow *sibling, gboolean above) {}
-static void gdk_window_orbital_move_to_rect (GdkWindow *w, const GdkRectangle *r, GdkGravity ra, GdkGravity wa, GdkAnchorHints ah, gint dx, gint dy) {}
 static void gdk_window_orbital_set_background (GdkWindow *window, cairo_pattern_t *pattern) {}
 static gboolean gdk_window_orbital_reparent (GdkWindow *w, GdkWindow *np, gint x, gint y) { return FALSE; }
 static void gdk_window_orbital_set_device_cursor (GdkWindow *w, GdkDevice *d, GdkCursor *c) { if (!GDK_WINDOW_DESTROYED(w)) GDK_DEVICE_GET_CLASS(d)->set_window_cursor(d, w, c); }
@@ -845,7 +1037,6 @@ static void gdk_window_orbital_destroy_foreign (GdkWindow *window) {}
 static cairo_region_t *gdk_orbital_window_get_shape (GdkWindow *window) { return NULL; }
 static cairo_region_t *gdk_orbital_window_get_input_shape (GdkWindow *window) { return NULL; }
 static void gdk_orbital_window_focus (GdkWindow *window, guint32 timestamp) {}
-static void gdk_orbital_window_set_type_hint (GdkWindow *w, GdkWindowTypeHint h) { GDK_WINDOW_IMPL_ORBITAL(w->impl)->hint = h; }
 static GdkWindowTypeHint gdk_orbital_window_get_type_hint (GdkWindow *window) { return GDK_WINDOW_DESTROYED(window) ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_IMPL_ORBITAL(window->impl)->hint; }
 static void gdk_orbital_window_set_modal_hint (GdkWindow *window, gboolean modal) { window->modal_hint = modal; }
 static void gdk_orbital_window_set_skip_taskbar_hint (GdkWindow *window, gboolean skips) {}
@@ -856,7 +1047,6 @@ static void gdk_orbital_window_set_role (GdkWindow *window, const gchar *role) {
 static void gdk_orbital_window_set_startup_id (GdkWindow *window, const gchar *startup_id) {}
 static void gdk_orbital_window_set_transient_for (GdkWindow *window, GdkWindow *parent) { GDK_WINDOW_IMPL_ORBITAL(window->impl)->transient_for = parent; }
 static void gdk_orbital_window_get_frame_extents (GdkWindow *window, GdkRectangle *rect) { *rect = (GdkRectangle) { .x = window->x, .y = window->y, .width = window->width, .height = window->height }; }
-static void gdk_orbital_window_set_override_redirect (GdkWindow *window, gboolean override_redirect) {}
 static void gdk_orbital_window_set_accept_focus (GdkWindow *window, gboolean accept_focus) {}
 static void gdk_orbital_window_set_focus_on_map (GdkWindow *window, gboolean focus_on_map) {}
 static void gdk_orbital_window_set_icon_list (GdkWindow *window, GList *pixbufs) {}
