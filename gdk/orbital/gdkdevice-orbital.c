@@ -199,15 +199,16 @@ get_coordinates (GdkDevice *device,
       return;
     }
     
+  GdkWindow *target = pointer->grab_window ? pointer->grab_window : pointer->focus;
 
   if (x)
     *x = pointer->surface_x;
   if (y)
     *y = pointer->surface_y;
 
-  if (pointer->focus)
+  if (target)
     {
-      gdk_window_get_root_coords (pointer->focus,
+      gdk_window_get_root_coords (target,
                                   pointer->surface_x,
                                   pointer->surface_y,
                                   &root_x, &root_y);
@@ -256,10 +257,14 @@ gdk_orbital_device_query_state (GdkDevice        *device,
   pointer = GDK_ORBITAL_DEVICE (device)->pointer;
   default_screen = gdk_display_get_default_screen (seat->display);
 
+  GdkWindow *target = NULL;
+  if (pointer)
+    target = pointer->grab_window ? pointer->grab_window : pointer->focus;
+
   if (root_window)
     *root_window = gdk_screen_get_root_window (default_screen);
   if (child_window)
-    *child_window = (pointer && g_list_find (window->children, pointer->focus)) ? pointer->focus : NULL;
+    *child_window = (target && g_list_find (window->children, target)) ? target : NULL;
   if (mask)
     *mask = device_get_modifiers (device);
 
@@ -312,7 +317,17 @@ gdk_orbital_device_grab (GdkDevice    *device,
       orb_window_set_mouse_grab (orb_window, TRUE);
     }
 
-  pointer->grab_window = window;
+  if (pointer->grab_window != window)
+    {
+      if (pointer->grab_window)
+        g_object_remove_weak_pointer (G_OBJECT (pointer->grab_window), (gpointer *) &pointer->grab_window);
+      
+      pointer->grab_window = window;
+      
+      if (pointer->grab_window)
+        g_object_add_weak_pointer (G_OBJECT (pointer->grab_window), (gpointer *) &pointer->grab_window);
+    }
+
   pointer->grab_time = time_ != 0 ? time_ : pointer->time;
   
   if (cursor) 
@@ -339,9 +354,11 @@ gdk_orbital_device_ungrab (GdkDevice *device,
         {
           orb_window_set_mouse_grab (orb_window, FALSE);
         }
+
+      g_object_remove_weak_pointer (G_OBJECT (pointer->grab_window), (gpointer *) &pointer->grab_window);
+      pointer->grab_window = NULL;
     }
 
-  pointer->grab_window = NULL;
   gdk_orbital_device_update_window_cursor (device);
 }
 
@@ -356,7 +373,12 @@ gdk_orbital_device_window_at_position (GdkDevice       *device,
 
   pointer = GDK_ORBITAL_DEVICE(device)->pointer;
 
-  if (!pointer || !pointer->focus)
+  if (!pointer)
+    return NULL;
+
+  GdkWindow *target = pointer->grab_window ? pointer->grab_window : pointer->focus;
+
+  if (!target)
     return NULL;
 
   if (win_x)
@@ -366,7 +388,7 @@ gdk_orbital_device_window_at_position (GdkDevice       *device,
   if (mask)
     *mask = device_get_modifiers (device);
 
-  return pointer->focus;
+  return target;
 }
 
 static void
@@ -458,6 +480,7 @@ gdk_orbital_seat_finalize (GObject *object)
   g_clear_object (&seat->keymap);
   g_clear_object (&seat->pointer_info.focus);
   g_clear_object (&seat->pointer_info.cursor);
+  g_clear_object (&seat->grab_cursor);
 
   G_OBJECT_CLASS (gdk_orbital_seat_parent_class)->finalize (object);
 }
@@ -466,6 +489,25 @@ static GdkSeatCapabilities
 gdk_orbital_seat_get_capabilities (GdkSeat *seat)
 {
   return GDK_SEAT_CAPABILITY_POINTER | GDK_SEAT_CAPABILITY_KEYBOARD;
+}
+
+static void
+gdk_orbital_seat_set_grab_window (GdkOrbitalSeat *seat,
+                                  GdkWindow      *window)
+{
+  if (seat->grab_window)
+    {
+      g_object_remove_weak_pointer (G_OBJECT (seat->grab_window),
+                                    (gpointer *) &seat->grab_window);
+      seat->grab_window = NULL;
+    }
+
+  if (window)
+    {
+      seat->grab_window = window;
+      g_object_add_weak_pointer (G_OBJECT (window),
+                                 (gpointer *) &seat->grab_window);
+    }
 }
 
 static GdkGrabStatus
@@ -479,12 +521,27 @@ gdk_orbital_seat_grab (GdkSeat                *seat,
                        gpointer                prepare_func_data)
 {
   GdkOrbitalSeat *orbital_seat = GDK_ORBITAL_SEAT (seat);
+  GdkWindow *native = gdk_window_get_toplevel (window);
   
+  if (native == NULL || GDK_WINDOW_DESTROYED (native))
+    return GDK_GRAB_NOT_VIEWABLE;
+
+  gdk_orbital_seat_set_grab_window (orbital_seat, native);
+
   if (prepare_func)
     (prepare_func) (seat, window, prepare_func_data);
 
   if (!gdk_window_is_visible (window))
-    return GDK_GRAB_NOT_VIEWABLE;
+    {
+      gdk_orbital_seat_set_grab_window (orbital_seat, NULL);
+      return GDK_GRAB_NOT_VIEWABLE;
+    }
+
+  if (cursor)
+    {
+      g_clear_object (&orbital_seat->grab_cursor);
+      orbital_seat->grab_cursor = g_object_ref (cursor);
+    }
 
   if (capabilities & GDK_SEAT_CAPABILITY_POINTER) {
     gdk_orbital_device_grab (orbital_seat->master_pointer, window, owner_events, 
@@ -504,6 +561,7 @@ gdk_orbital_seat_ungrab (GdkSeat *seat)
 {
   GdkOrbitalSeat *orbital_seat = GDK_ORBITAL_SEAT (seat);
 
+  gdk_orbital_seat_set_grab_window (orbital_seat, NULL);
   g_clear_object (&orbital_seat->grab_cursor);
   
   if (orbital_seat->master_pointer)
