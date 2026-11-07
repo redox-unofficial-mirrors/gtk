@@ -555,6 +555,40 @@ gdk_orbital_seat_init (GdkOrbitalSeat *seat)
 }
 
 void
+gdk_orbital_seat_update_pointer_focus (GdkSeat   *seat,
+                                        GdkWindow *window)
+{
+  GdkOrbitalSeat *orbital_seat = GDK_ORBITAL_SEAT (seat);
+  if (!orbital_seat)
+    return;
+
+  GdkOrbitalPointerData *pointer = &orbital_seat->pointer_info;
+
+  if (pointer->focus == window)
+    return;
+
+  if (pointer->focus)
+    g_object_unref (pointer->focus);
+
+  pointer->focus = window ? g_object_ref (window) : NULL;
+}
+
+void
+gdk_orbital_seat_update_pointer_coords (GdkSeat *seat,
+                                         double   x,
+                                         double   y)
+{
+  GdkOrbitalSeat *orbital_seat = GDK_ORBITAL_SEAT (seat);
+  if (!orbital_seat)
+    return;
+
+  GdkOrbitalPointerData *pointer = &orbital_seat->pointer_info;
+  
+  pointer->surface_x = x;
+  pointer->surface_y = y;
+}
+
+void
 _gdk_orbital_device_manager_add_seat (GdkDeviceManager *device_manager,
                                                         guint32           id,
                                                         gpointer          pseat)
